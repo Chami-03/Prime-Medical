@@ -1,0 +1,5 @@
+{
+    "java.jdt.ls.java.home": "C:/jdk/jdk-17.0.16",
+    "java.compile.nullAnalysis.mode": "disabled",
+    "java.configuration.updateBuildConfiguration": "interactive"
+}

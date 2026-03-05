@@ -1,0 +1,35 @@
+{
+  "name": "medi-center-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.28.0",
+    "axios": "^1.6.8",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.575.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.51.3",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.23.1",
+    "recharts": "^2.15.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.28",
+    "@types/react-dom": "^18.0.11",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^9.1.1",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.1.6",
+    "vite": "^5.3.4"
+  }
+}
