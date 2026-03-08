@@ -476,6 +476,7 @@ export default function Dashboard() {
                   <span className="badge-blue mt-2 inline-block">{nextAppointment.status}</span>
                 </div>
               </div>
+            
             ) : (
               <div className="p-5 rounded-xl bg-muted/40 text-center">
                 <Calendar size={24} className="text-muted-foreground/40 mx-auto mb-2" />
