@@ -14,7 +14,7 @@ const setToken = (t: string | null)=>{
 
 instance.interceptors.response.use(r=>r, err=>{
   if(err.response && err.response.status===401){
-    // optionally emit global event
+    // optionally emit global events
   }
   return Promise.reject(err)
 })
