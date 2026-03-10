@@ -41,3 +41,4 @@ Frontend runs at: http://localhost:5173
 |Pharmacist   |pharmacist@primemedical.lk |
 |Patient      |patient@primemedical.lk    |
 |Admin        |admin@primemedical.lk      |
+
