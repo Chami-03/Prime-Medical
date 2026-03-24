@@ -15,14 +15,7 @@ CREATE DATABASE primemedical\_db CHARACTER SET utf8mb4;
 ## Backend
 
 cd backend
-set JWT\_SECRET=myVeryLongSecretKey256BitsMinimumForSecurity
-set MAIL\_USERNAME=yourapp@gmail.com  
-set MAIL\_PASSWORD=your-gmail-app-password
-set MAIL\_FROM=yourapp@gmail.com
-set TWILIO\_ACCOUNT\_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-set TWILIO\_AUTH\_TOKEN=your-twilio-auth-token
-set TWILIO\_FROM\_NUMBER=+1xxxxxxxxxx
-set TWILIO\_MESSAGING\_SERVICE\_SID=MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
 mvn spring-boot:run
 
 Backend runs at: http://localhost:8080
