@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { appointmentApi } from '../../api/appointmentApi'
@@ -37,6 +37,13 @@ function updateAppointmentInCachedResponse(oldValue, appointmentId, updater) {
 
 const STATUS_ORDER = ['CONFIRMED', 'CHECKED_IN', 'COMPLETED', 'CANCELLED']
 
+function extractDoctors(payload) {
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.data?.data)) return payload.data.data
+  if (Array.isArray(payload)) return payload
+  return []
+}
+
 export default function CalendarPage() {
   const queryClient = useQueryClient()
   const { user, hasRole } = useAuth()
@@ -57,6 +64,8 @@ export default function CalendarPage() {
     refetchInterval: 30000,
   })
 
+  const doctors = useMemo(() => extractDoctors(doctorsRes), [doctorsRes])
+
   const { data: apptsRes, isLoading } = useQuery({
     queryKey: ['calendar', isPatient ? 'mine' : selectedDoctorId, selectedDate],
     queryFn: () =>
@@ -66,6 +75,15 @@ export default function CalendarPage() {
     enabled: isPatient || !!selectedDoctorId,
     refetchInterval: 10000,
     refetchIntervalInBackground: true,
+  })
+
+  const { data: auditTimelineData, isLoading: isAuditLoading } = useQuery({
+    queryKey: ['appointment-audit-timeline', detailAppt?.id],
+    queryFn: () => appointmentApi.getAuditTimeline(detailAppt.id),
+    enabled: !!detailAppt?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   })
 
   const rescheduleMutation = useMutation({
@@ -187,11 +205,21 @@ export default function CalendarPage() {
   })
 
   const appointments = (apptsRes?.data || []).filter((appointment) => appointment?.status !== 'CANCELLED')
+  const auditTimeline = auditTimelineData?.data || []
   const currentDoctorName = user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ')
-  const selectedDoctor = (doctorsRes?.data ?? []).find((doc) => Number(doc.id) === Number(selectedDoctorId))
+  const selectedDoctor = doctors.find((doc) => Number(doc?.id) === Number(selectedDoctorId))
   const selectedDoctorName = selectedDoctor
     ? [selectedDoctor.firstName, selectedDoctor.lastName].filter(Boolean).join(' ')
     : currentDoctorName
+
+  const formatAuditAction = (action) => {
+    if (!action) return '-'
+    return action
+      .split('_')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
+  }
 
   const handleConfirmDelete = () => {
     if (!deleteAppt?.id) {
@@ -208,25 +236,33 @@ export default function CalendarPage() {
         <h2 className="text-xl font-semibold text-foreground flex items-center gap-2">
           <CalendarDays size={18} className="text-primary" /> {isPatient ? 'My Appointments' : 'Doctor Schedule'}
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
           {!isPatient && hasRole('DOCTOR') && <span className="text-sm text-muted-foreground">Dr. {currentDoctorName || '-'}</span>}
           {!isPatient && isReceptionist && (
             <select
-              className="form-input h-9 text-sm w-56"
-              value={selectedDoctorId ?? ''}
-              onChange={(e) => setSelectedDoctorId(e.target.value ? Number(e.target.value) : null)}
+              className="form-select h-10 py-0 text-sm leading-6 w-full sm:w-56 min-w-[12rem]"
+              value={selectedDoctorId != null ? String(selectedDoctorId) : ''}
+              onChange={(e) => {
+                const nextValue = e.target.value
+                if (!nextValue) {
+                  setSelectedDoctorId(null)
+                  return
+                }
+                const parsedId = Number(nextValue)
+                setSelectedDoctorId(Number.isNaN(parsedId) ? null : parsedId)
+              }}
             >
               <option value="">-- Select Doctor --</option>
-              {(doctorsRes?.data ?? []).map((doc) => (
-                <option key={doc.id} value={doc.id}>
-                  Dr. {[doc.firstName, doc.lastName].filter(Boolean).join(' ')}
+              {doctors.map((doc) => (
+                <option key={doc?.id} value={String(doc?.id)}>
+                  Dr. {[doc?.firstName, doc?.lastName].filter(Boolean).join(' ')}
                 </option>
               ))}
             </select>
           )}
           <input
             type="date"
-            className="form-input h-9 text-sm w-44"
+            className="form-input h-10 py-0 text-sm leading-6 w-full sm:w-44"
             value={selectedDate}
             onChange={e => setSelectedDate(e.target.value)}
           />
@@ -380,6 +416,39 @@ export default function CalendarPage() {
           <p><span className="text-muted-foreground">Time:</span> {detailAppt?.appointmentTime?.replace('T', ' ')}</p>
           <p><span className="text-muted-foreground">Visit Type:</span> {detailAppt?.visitType}</p>
           <p><span className="text-muted-foreground">Reason:</span> {detailAppt?.reason || '-'}</p>
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide mb-2">Audit Timeline</p>
+            {isAuditLoading ? (
+              <p className="text-xs text-muted-foreground">Loading timeline...</p>
+            ) : auditTimeline.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No audit events yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {auditTimeline.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-border p-2.5 bg-muted/30">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{formatAuditAction(event.action)}</p>
+                      <p className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        {event.changedAt ? new Date(event.changedAt).toLocaleString() : '-'}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">By: {event.changedByName || 'System'}</p>
+                    {(event.fromStatus || event.toStatus) && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Status: {event.fromStatus || '-'} → {event.toStatus || '-'}
+                      </p>
+                    )}
+                    {event.reason && (
+                      <p className="text-xs text-muted-foreground mt-1">Reason: {event.reason}</p>
+                    )}
+                    {event.details && (
+                      <p className="text-xs text-muted-foreground mt-1">{event.details}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="pt-3">
             <Button className="w-full" onClick={() => setDetailAppt(null)}>Close</Button>
           </div>

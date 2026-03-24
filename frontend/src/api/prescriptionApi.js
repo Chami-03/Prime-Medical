@@ -16,6 +16,15 @@ export const prescriptionApi = {
     getByPatient: (patientId) =>
         api.get(`/prescriptions/patient/${patientId}`).then((r) => r.data),
 
+    getPending: () =>
+        api.get('/prescriptions/pending').then((r) => r.data),
+
+    getRecentlyPending: (minutes = 120) =>
+        api.get('/prescriptions/pending/recent', { params: { minutes } }).then((r) => r.data),
+
+    getRecentlyDispensed: (minutes = 120) =>
+        api.get('/prescriptions/dispensed/recent', { params: { minutes } }).then((r) => r.data),
+
     getByConsultation: (consultationId) =>
         api.get(`/prescriptions/consultation/${consultationId}`).then((r) => r.data).catch((err) => {
             if (err?.response?.status === 404) {

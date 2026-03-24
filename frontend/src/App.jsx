@@ -7,6 +7,8 @@ import LoginPage from './pages/auth/LoginPage'
 import RegisterPage from './pages/auth/RegisterPage'
 import UnauthorizedPage from './pages/UnauthorizedPage'
 import LandingPage from './pages/public/LandingPage'
+import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage'
+import TermsOfServicePage from './pages/public/TermsOfServicePage'
 
 // Functional Pages
 import Dashboard from './pages/Dashboard'
@@ -17,6 +19,7 @@ import AppointmentListPage from './pages/appointments/AppointmentListPage'
 import BookAppointmentPage from './pages/appointments/BookAppointmentPage'
 import CalendarPage from './pages/appointments/CalendarPage'
 import QueueManagementPage from './pages/queue/QueueManagementPage'
+import PatientVitalsPage from './pages/nurse/PatientVitalsPage'
 import ConsultationPage from './pages/medical/ConsultationPage'
 import PrescriptionPage from './pages/medical/PrescriptionPage'
 import DispensePage from './pages/medical/DispensePage'
@@ -30,6 +33,7 @@ import MedicationIconsDemo from './pages/MedicationIconsDemo'
 import StaffProfilesPage from './pages/admin/StaffProfilesPage'
 import AdminAnalyticsPage from './pages/admin/AdminAnalyticsPage'
 import SystemSettingsPage from './pages/admin/SystemSettingsPage'
+import ProfileSettingsPage from './pages/profile/ProfileSettingsPage'
 
 export default function App() {
     return (
@@ -40,6 +44,8 @@ export default function App() {
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
                 <Route path="/unauthorized" element={<UnauthorizedPage />} />
+                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route path="/terms-of-service" element={<TermsOfServicePage />} />
 
                 {/* Protected Routes */}
                 <Route
@@ -96,6 +102,15 @@ export default function App() {
                         element={
                             <ProtectedRoute allowedRoles={['RECEPTIONIST', 'DOCTOR', 'NURSE']}>
                                 <QueueManagementPage />
+                            </ProtectedRoute>
+                        }
+                    />
+
+                    <Route
+                        path="/nurse/patient-vitals"
+                        element={
+                            <ProtectedRoute allowedRoles={['NURSE']}>
+                                <PatientVitalsPage />
                             </ProtectedRoute>
                         }
                     />
@@ -187,6 +202,8 @@ export default function App() {
                     />
 
                     {/* Administration */}
+                    <Route path="/profile" element={<ProfileSettingsPage />} />
+
                     <Route
                         path="/staff"
                         element={

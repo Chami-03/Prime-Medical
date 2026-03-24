@@ -40,7 +40,7 @@ function updateAppointmentInCachedResponse(oldValue, appointmentId, updater) {
 export default function AppointmentListPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
-  const initialDate = searchParams.get('date') || new Date().toLocaleDateString('en-CA')
+  const initialDate = searchParams.get('date') || new Date().toISOString().slice(0, 10)
   const [detailAppt, setDetailAppt] = useState(null)
   const [selectedAppt, setSelectedAppt] = useState(null)
   const [cancelReason, setCancelReason] = useState('')
@@ -53,19 +53,35 @@ export default function AppointmentListPage() {
   const { user, hasRole } = useAuth()
   const isPatient = hasRole('PATIENT')
   const isReceptionist = hasRole('RECEPTIONIST')
-  const doctorId = user?.id || 1
+  const isDoctor = hasRole('DOCTOR')
+  const canBookAppointments = isPatient || isReceptionist || isDoctor
+  const doctorId = user?.id ?? null
 
   const { data, isLoading } = useQuery({
     queryKey: ['appointments', isPatient ? 'mine' : (isReceptionist ? 'reception' : doctorId), selectedDate],
     queryFn: () => {
       if (isPatient) return appointmentApi.getMyCalendar(selectedDate)
-      if (isReceptionist) {
+      if (isReceptionist || isDoctor) {
         return appointmentApi.getAll({ startDate: selectedDate, endDate: selectedDate })
       }
       return appointmentApi.getCalendar(doctorId, selectedDate)
     },
+    enabled: !isDoctor || !!doctorId,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     refetchInterval: 10000,
     refetchIntervalInBackground: true,
+  })
+
+  const { data: auditTimelineData, isLoading: isAuditLoading } = useQuery({
+    queryKey: ['appointment-audit-timeline', detailAppt?.id],
+    queryFn: () => appointmentApi.getAuditTimeline(detailAppt.id),
+    enabled: !!detailAppt?.id,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   })
 
   const cancelMutation = useMutation({
@@ -210,10 +226,23 @@ export default function AppointmentListPage() {
   })
 
   const appts = (data?.data || []).filter((appointment) => appointment?.status !== 'CANCELLED')
+  const confirmedCount = appts.filter((a) => a?.status === 'CONFIRMED').length
+  const pendingCount = appts.filter((a) => ['PENDING', 'REQUESTED'].includes(a?.status)).length
+  const completedCount = appts.filter((a) => a?.status === 'COMPLETED').length
   const fallbackDoctorName = user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(' ')
   const doctorLabel = (appointment) => {
     const name = appointment?.doctorName || fallbackDoctorName
     return name ? `Dr. ${name}` : 'Dr. -'
+  }
+  const auditTimeline = auditTimelineData?.data || []
+
+  const formatAuditAction = (action) => {
+    if (!action) return '-'
+    return action
+      .split('_')
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ')
   }
 
   const handleConfirmDelete = () => {
@@ -282,32 +311,55 @@ export default function AppointmentListPage() {
   return (
     <div className="space-y-5">
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">Appointments</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </p>
+      <div className="epic-shell space-y-4">
+        <div className="epic-toolbar">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Appointments</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+            </p>
+          </div>
+          <div className="epic-toolbar-actions">
+            <input
+              type="date"
+              className="form-input h-9 text-sm w-44"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+            />
+            <Link to="/appointments/calendar">
+              <Button variant="secondary" size="sm" className="flex items-center gap-1.5">
+                <Calendar size={14} />
+                Calendar
+              </Button>
+            </Link>
+            {canBookAppointments && (
+              <Link to="/appointments/book">
+                <Button size="sm" className="flex items-center gap-1.5">
+                  <Plus size={14} />
+                  Book Appointment
+                </Button>
+              </Link>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            className="form-input h-9 text-sm w-44"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-          />
-          <Link to="/appointments/calendar">
-            <Button variant="secondary" size="sm" className="flex items-center gap-1.5">
-              <Calendar size={14} />
-              Calendar
-            </Button>
-          </Link>
-          <Link to="/appointments/book">
-            <Button size="sm" className="flex items-center gap-1.5">
-              <Plus size={14} />
-              Book Appointment
-            </Button>
-          </Link>
+
+        <div className="epic-kpi-grid">
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Total</p>
+            <p className="epic-kpi-value">{appts.length}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Confirmed</p>
+            <p className="epic-kpi-value">{confirmedCount}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Pending</p>
+            <p className="epic-kpi-value">{pendingCount}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Completed</p>
+            <p className="epic-kpi-value">{completedCount}</p>
+          </div>
         </div>
       </div>
 
@@ -322,9 +374,11 @@ export default function AppointmentListPage() {
           <div className="flex flex-col items-center justify-center py-24">
             <Calendar size={40} className="text-muted-foreground/30 mb-3" />
             <p className="text-sm font-medium text-muted-foreground">No appointments today</p>
-            <Link to="/appointments/book" className="mt-3 text-sm text-primary hover:underline underline-offset-4 font-medium flex items-center gap-1">
-              Book one now <ChevronRight size={13} />
-            </Link>
+            {canBookAppointments && (
+              <Link to="/appointments/book" className="mt-3 text-sm text-primary hover:underline underline-offset-4 font-medium flex items-center gap-1">
+                Book one now <ChevronRight size={13} />
+              </Link>
+            )}
           </div>
         ) : (
           <table className="pm-table">
@@ -359,22 +413,26 @@ export default function AppointmentListPage() {
                     <td><Badge status={appt.status} /></td>
                     <td>
                       <div className="flex items-center justify-end gap-1">
-                        {!isPatient && active && appt.status === 'CONFIRMED' && (
+                        {active && appt.status === 'CONFIRMED' && (
                           <>
-                            <button
-                              title="View"
-                              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
-                              onClick={() => setDetailAppt(appt)}
-                            >
-                              <Eye size={15} />
-                            </button>
-                            <button
-                              title="Check In"
-                              className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors"
-                              onClick={() => setCheckInAppt(appt)}
-                            >
-                              <UserCheck size={15} />
-                            </button>
+                            {!isPatient && (
+                              <>
+                                <button
+                                  title="View"
+                                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
+                                  onClick={() => setDetailAppt(appt)}
+                                >
+                                  <Eye size={15} />
+                                </button>
+                                <button
+                                  title="Check In"
+                                  className="p-1.5 rounded-md hover:bg-primary/10 text-primary transition-colors"
+                                  onClick={() => setCheckInAppt(appt)}
+                                >
+                                  <UserCheck size={15} />
+                                </button>
+                              </>
+                            )}
                             <button
                               title="Reschedule"
                               className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
@@ -447,6 +505,41 @@ export default function AppointmentListPage() {
           {detailAppt?.cancellationReason && (
             <p><span className="text-muted-foreground">Cancellation Reason:</span> {detailAppt?.cancellationReason}</p>
           )}
+          <div className="pt-2">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide mb-2">Audit Timeline</p>
+            {isAuditLoading ? (
+              <p className="text-xs text-muted-foreground">Loading timeline...</p>
+            ) : auditTimeline.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No audit events yet.</p>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {auditTimeline.map((event) => (
+                  <div key={event.id} className="rounded-lg border border-border p-2.5 bg-muted/30">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">{formatAuditAction(event.action)}</p>
+                      <p className="text-[11px] text-muted-foreground whitespace-nowrap">
+                        {event.changedAt ? new Date(event.changedAt).toLocaleString() : '-'}
+                      </p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      By: {event.changedByName || 'System'}
+                    </p>
+                    {(event.fromStatus || event.toStatus) && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Status: {event.fromStatus || '-'} → {event.toStatus || '-'}
+                      </p>
+                    )}
+                    {event.reason && (
+                      <p className="text-xs text-muted-foreground mt-1">Reason: {event.reason}</p>
+                    )}
+                    {event.details && (
+                      <p className="text-xs text-muted-foreground mt-1">{event.details}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="pt-3">
             <Button className="w-full" onClick={() => setDetailAppt(null)}>Close</Button>
           </div>
@@ -479,7 +572,7 @@ export default function AppointmentListPage() {
               onClick={() =>
                 cancelMutation.mutate({
                   id: selectedAppt.id,
-                  reason: cancelReason.trim() || 'Cancelled by receptionist',
+                  reason: cancelReason.trim() || (isPatient ? 'Cancelled by patient' : 'Cancelled by receptionist'),
                 })
               }
             >

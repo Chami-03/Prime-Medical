@@ -18,10 +18,31 @@ cd backend
 set JWT\_SECRET=myVeryLongSecretKey256BitsMinimumForSecurity
 set MAIL\_USERNAME=yourapp@gmail.com  
 set MAIL\_PASSWORD=your-gmail-app-password
+set MAIL\_FROM=yourapp@gmail.com
+set TWILIO\_ACCOUNT\_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+set TWILIO\_AUTH\_TOKEN=your-twilio-auth-token
+set TWILIO\_FROM\_NUMBER=+1xxxxxxxxxx
+set TWILIO\_MESSAGING\_SERVICE\_SID=MGxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 mvn spring-boot:run
 
 Backend runs at: http://localhost:8080
 Swagger UI: http://localhost:8080/swagger-ui.html
+
+Notes:
+- Set either `TWILIO_FROM_NUMBER` or `TWILIO_MESSAGING_SERVICE_SID` (at least one is required).
+- Gmail accounts should use an App Password for `MAIL_PASSWORD`.
+
+## Notification Re-Verify
+
+1. Start backend and check startup logs:
+	- `Email notifications enabled with sender:`
+	- `SMS notifications enabled via Twilio.`
+2. Trigger a registration and confirm:
+	- Confirmation email received
+	- Confirmation SMS received
+3. Book and cancel an appointment, then check both channels.
+4. Record a payment, then check both channels.
+5. Delete a patient account, then check both channels.
 
 ## Frontend
 

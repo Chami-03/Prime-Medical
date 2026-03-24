@@ -1,7 +1,7 @@
 ﻿import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Activity, Clock, ChevronRight, User } from 'lucide-react'
 import { queueApi } from '../../api/queueApi'
 import { consultationApi } from '../../api/consultationApi'
@@ -15,11 +15,17 @@ export default function QueueManagementPage() {
   const { user, hasAnyRole } = useAuth()
   const [isVitalsModalOpen, setIsVitalsModalOpen] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState(null)
+  const [activeTab, setActiveTab] = useState('ALL')
 
   const { data: queueRes, isLoading } = useQuery({
     queryKey: ['today-queue'],
     queryFn: () => queueApi.getToday(),
-    refetchInterval: 10000,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: true,
   })
 
   const callNextMutation = useMutation({
@@ -67,16 +73,34 @@ export default function QueueManagementPage() {
   const inConsultation = queueEntries.filter(e => e.status === 'IN_CONSULTATION')
   const done = queueEntries.filter(e => ['COMPLETED', 'NO_SHOW'].includes(e.status))
   const nextCallable = queueEntries.find(e => ['WAITING', 'VITALS_PENDING', 'READY'].includes(e.status))
+  const isNurse = hasAnyRole('NURSE')
+
+  const tabCounts = useMemo(() => ({
+    ALL: queueEntries.length,
+    WAITING: queueEntries.filter(e => ['WAITING', 'VITALS_PENDING'].includes(e.status)).length,
+    READY: queueEntries.filter(e => e.status === 'READY').length,
+    IN_CONSULTATION: queueEntries.filter(e => e.status === 'IN_CONSULTATION').length,
+    DONE: queueEntries.filter(e => ['COMPLETED', 'NO_SHOW'].includes(e.status)).length,
+  }), [queueEntries])
+
+  const visibleEntries = useMemo(() => {
+    if (activeTab === 'ALL') return queueEntries
+    if (activeTab === 'WAITING') return queueEntries.filter(e => ['WAITING', 'VITALS_PENDING'].includes(e.status))
+    if (activeTab === 'READY') return queueEntries.filter(e => e.status === 'READY')
+    if (activeTab === 'IN_CONSULTATION') return queueEntries.filter(e => e.status === 'IN_CONSULTATION')
+    if (activeTab === 'DONE') return queueEntries.filter(e => ['COMPLETED', 'NO_SHOW'].includes(e.status))
+    return queueEntries
+  }, [activeTab, queueEntries])
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">Patient Queue</h2>
+          <h2 className="text-xl font-semibold text-foreground">{isNurse ? 'Nurse Queue Board' : 'Patient Queue'}</h2>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live  auto-updates every 10 s
+            Live  auto-updates every 2 s
           </p>
         </div>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -101,18 +125,43 @@ export default function QueueManagementPage() {
         </div>
       </div>
 
+      {isNurse && (
+        <div className="pm-card p-3 flex flex-wrap items-center gap-2">
+          {[
+            { key: 'ALL', label: 'All' },
+            { key: 'WAITING', label: 'Waiting' },
+            { key: 'READY', label: 'Ready' },
+            { key: 'IN_CONSULTATION', label: 'In Consultation' },
+            { key: 'DONE', label: 'Done' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`h-8 px-3 rounded-lg text-xs font-medium border transition-colors ${
+                activeTab === tab.key
+                  ? 'bg-primary/10 border-primary/30 text-primary'
+                  : 'bg-card border-border text-muted-foreground hover:text-foreground'
+              }`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label} ({tabCounts[tab.key] || 0})
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="pm-card flex items-center justify-center py-16">
           <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
         </div>
-      ) : queueEntries.length === 0 ? (
+      ) : visibleEntries.length === 0 ? (
         <div className="pm-card flex flex-col items-center justify-center py-16">
           <Activity size={32} className="text-muted-foreground/30 mb-2" />
-          <p className="text-sm text-muted-foreground">Queue is empty for today</p>
+          <p className="text-sm text-muted-foreground">No patients in this queue tab</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {queueEntries.map((entry) => {
+          {visibleEntries.map((entry) => {
             const isActive = entry.status === 'IN_CONSULTATION'
             return (
               <div

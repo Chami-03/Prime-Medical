@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer,
   XAxis, YAxis, Tooltip as ReTooltip, CartesianGrid, Legend,
@@ -86,40 +86,48 @@ const CUSTOM_PIE_LABEL = ({ cx, cy, midAngle, outerRadius, percent }) => {
 
 /* ─── main page ─────────────────────────────────────────────── */
 export default function ReportsPage() {
+  const queryClient = useQueryClient()
   const [reportType, setReportType]   = useState('STOCK_SUMMARY')
   const [expiryDays, setExpiryDays]   = useState('30')
   const [sortConfig, setSortConfig]   = useState({ key: 'totalValue', dir: 'desc' })
   const [search, setSearch]           = useState('')
 
-  /* ── queries with 30s auto-refresh ─────────────────────── */
-  const refetchInterval = 30_000
+  /* ── queries with near real-time auto-refresh ───────────── */
+  const refetchInterval = 60_000
+  const liveQueryOptions = {
+    refetchInterval,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    staleTime: 0,
+  }
 
-  const { data: allItemsRes, isLoading: loadingAll, dataUpdatedAt, refetch } = useQuery({
+  const { data: allItemsRes, isLoading: loadingAll, dataUpdatedAt, refetch: refetchAllItems } = useQuery({
     queryKey: ['inventory-all'],
     queryFn:  () => inventoryApi.getAll(),
-    refetchInterval,
+    ...liveQueryOptions,
   })
 
-  const { data: alertsRes, isLoading: loadingAlerts } = useQuery({
+  const { data: alertsRes, isLoading: loadingAlerts, refetch: refetchAlerts } = useQuery({
     queryKey: ['inventory-alerts'],
     queryFn:  () => inventoryApi.getAlerts(),
-    refetchInterval,
+    ...liveQueryOptions,
   })
 
-  const { data: activityRes, isLoading: loadingActivity } = useQuery({
+  const { data: activityRes, isLoading: loadingActivity, refetch: refetchActivity } = useQuery({
     queryKey: ['inventory-activity'],
     queryFn:  () => inventoryApi.getActivity(),
-    refetchInterval,
+    ...liveQueryOptions,
   })
 
   const beforeDate = reportType === 'EXPIRY'
     ? new Date(Date.now() + parseInt(expiryDays, 10) * 86_400_000).toISOString().slice(0, 10)
     : undefined
 
-  const { data: reportRes, isLoading: loadingReport } = useQuery({
+  const { data: reportRes, isLoading: loadingReport, refetch: refetchReport } = useQuery({
     queryKey: ['inventory-report', reportType, expiryDays],
     queryFn:  () => inventoryApi.getReport(reportType, beforeDate),
-    refetchInterval,
+    ...liveQueryOptions,
   })
 
   /* ── derived data ───────────────────────────────────────── */
@@ -127,7 +135,7 @@ export default function ReportsPage() {
   const alerts   = alertsRes?.data || {}
   const activity = activityRes?.data || []
   const report   = reportRes?.data  || reportRes || {}
-  const rows     = report?.rows     || []
+  const rows     = Array.isArray(report?.rows) ? report.rows : []
 
   const totalValue  = report?.totalValue ?? 0
   const outOfStock  = useMemo(() => allItems.filter(i => (i.quantity ?? 0) === 0).length, [allItems])
@@ -185,18 +193,20 @@ export default function ReportsPage() {
 
   /* Filtered + sorted rows */
   const filteredRows = useMemo(() => {
-    const q = search.toLowerCase()
+    const q = String(search ?? '').trim().toLowerCase()
     return [...rows]
       .filter(r =>
         !q ||
-        (r.itemName ?? '').toLowerCase().includes(q) ||
-        (r.category ?? '').toLowerCase().includes(q) ||
-        (r.supplier ?? '').toLowerCase().includes(q)
+        String(r.itemName ?? '').toLowerCase().includes(q) ||
+        String(r.category ?? '').toLowerCase().includes(q) ||
+        String(r.supplier ?? '').toLowerCase().includes(q)
       )
       .sort((a, b) => {
         const av = a[sortConfig.key] ?? 0
         const bv = b[sortConfig.key] ?? 0
-        const cmp = typeof av === 'string' ? av.localeCompare(bv) : Number(av) - Number(bv)
+        const cmp = typeof av === 'string'
+          ? String(av).localeCompare(String(bv))
+          : Number(av) - Number(bv)
         return sortConfig.dir === 'asc' ? cmp : -cmp
       })
   }, [rows, search, sortConfig])
@@ -217,6 +227,19 @@ export default function ReportsPage() {
       })),
       `inventory-${reportType.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`
     )
+  }
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['inventory-all'] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory-alerts'] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory-activity'] }),
+      queryClient.invalidateQueries({ queryKey: ['inventory-report'] }),
+      refetchAllItems(),
+      refetchAlerts(),
+      refetchActivity(),
+      refetchReport(),
+    ])
   }
 
   const lastUpdated = dataUpdatedAt
@@ -252,12 +275,12 @@ export default function ReportsPage() {
         <div>
           <h2 className="text-xl font-bold text-foreground">Pharmacy Reports</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Live inventory analytics · auto-refreshes every 30 s · last updated {lastUpdated}
+            Live inventory analytics · auto-refreshes every 1 min · last updated {lastUpdated}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => refetch()}
+            onClick={handleRefresh}
             className="btn-neu flex items-center gap-1.5 text-sm px-3 h-9 text-muted-foreground hover:text-foreground"
           >
             <RefreshCw size={13} /> Refresh
@@ -438,36 +461,37 @@ export default function ReportsPage() {
       </div>
 
       {/* Report table */}
-      <div className="pm-card overflow-hidden">
-        <div className="p-4 border-b border-border flex flex-wrap items-end gap-3">
-          <div>
+      <div className="pm-card">
+        <div className="p-4 border-b border-border">
+          <div className="flex flex-wrap items-end gap-3">
+          <div className="w-full sm:w-[220px] min-w-0">
             <label className="form-label text-[11px]">Report Type</label>
-            <select className="form-input mt-1 h-8 text-sm" value={reportType} onChange={e => setReportType(e.target.value)}>
+            <select className="form-input mt-1 h-10 text-sm" value={reportType} onChange={e => setReportType(e.target.value)}>
               <option value="STOCK_SUMMARY">Stock Summary</option>
               <option value="LOW_STOCK">Low Stock</option>
               <option value="EXPIRY">Expiry Report</option>
             </select>
           </div>
           {reportType === 'EXPIRY' && (
-            <div>
+            <div className="w-full sm:w-[180px] min-w-0">
               <label className="form-label text-[11px]">Expiring Within</label>
-              <select className="form-input mt-1 h-8 text-sm" value={expiryDays} onChange={e => setExpiryDays(e.target.value)}>
+              <select className="form-input mt-1 h-10 text-sm" value={expiryDays} onChange={e => setExpiryDays(e.target.value)}>
                 <option value="7">7 days</option>
                 <option value="30">30 days</option>
                 <option value="90">90 days</option>
               </select>
             </div>
           )}
-          <div className="flex-1 min-w-[180px]">
+          <div className="min-w-[260px] flex-1">
             <label className="form-label text-[11px]">Search</label>
             <input
-              className="form-input mt-1 h-8 text-sm"
+              className="form-input mt-1 h-10 text-sm"
               placeholder="Filter by name, category, supplier…"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <div className="ml-auto text-right">
+          <div className="w-full sm:w-auto sm:ml-auto text-left sm:text-right">
             <p className="text-[11px] text-muted-foreground">
               {filteredRows.length} row{filteredRows.length !== 1 ? 's' : ''}
               {report?.totalItems ? ` of ${report.totalItems}` : ''}
@@ -475,6 +499,7 @@ export default function ReportsPage() {
             {report?.totalValue != null && (
               <p className="text-sm font-bold text-foreground">{fmt(report.totalValue)}</p>
             )}
+          </div>
           </div>
         </div>
 

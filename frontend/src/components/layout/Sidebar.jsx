@@ -1,4 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import {
   LayoutDashboard, Calendar, Users, UserPlus, Activity,
@@ -17,8 +18,9 @@ const NAV_GROUPS = {
         { to: '/dashboard',           label: 'Dashboard',      icon: LayoutDashboard, exact: true },
         { to: '/queue',               label: 'Queue',          icon: Activity },
         { to: '/patients',            label: 'Patients',       icon: Users },
-        { to: '/appointments',        label: 'Appointments',   icon: Calendar },
+        { to: '/appointments',        label: 'Appointments',   icon: Calendar, exact: true },
         { to: '/appointments/calendar', label: 'Calendar',     icon: ClipboardList },
+        { to: '/profile',             label: 'Profile',        icon: Settings },
       ]
     },
     {
@@ -36,8 +38,10 @@ const NAV_GROUPS = {
       items: [
         { to: '/dashboard',   label: 'Dashboard',    icon: LayoutDashboard, exact: true },
         { to: '/patients',    label: 'Patients',     icon: Users },
+        { to: '/nurse/patient-vitals', label: 'Patient Vitals', icon: HeartPulse },
         { to: '/queue',       label: 'Queue',        icon: Activity },
         { to: '/appointments',label: 'Appointments', icon: Calendar },
+        { to: '/profile',     label: 'Profile',      icon: Settings },
       ]
     }
   ],
@@ -46,12 +50,13 @@ const NAV_GROUPS = {
       label: 'Front Desk',
       items: [
         { to: '/dashboard',             label: 'Dashboard',      icon: LayoutDashboard, exact: true },
-        { to: '/patients',              label: 'Patients',       icon: Users },
+        { to: '/patients',              label: 'Patients',       icon: Users, exact: true },
         { to: '/patients/register',     label: 'New Patient',    icon: UserPlus },
-        { to: '/appointments',          label: 'Appointments',   icon: Calendar },
+        { to: '/appointments',          label: 'Appointments',   icon: Calendar, exact: true },
         { to: '/appointments/calendar', label: 'Calendar',       icon: ClipboardList },
         { to: '/queue',                 label: 'Queue',          icon: Activity },
         { to: '/billing',               label: 'Billing',        icon: CreditCard },
+        { to: '/profile',               label: 'Profile',        icon: Settings },
       ]
     }
   ],
@@ -60,10 +65,11 @@ const NAV_GROUPS = {
       label: 'Pharmacy',
       items: [
         { to: '/dashboard',          label: 'Dashboard',  icon: LayoutDashboard, exact: true },
-        { to: '/inventory',          label: 'Inventory',  icon: Box },
+        { to: '/inventory',          label: 'Inventory',  icon: Box, exact: true },
         { to: '/inventory/suppliers',label: 'Suppliers',  icon: Truck },
         { to: '/inventory/reports',  label: 'Reports',    icon: BarChart3 },
         { to: '/inventory/archived', label: 'Archived',   icon: Archive },
+        { to: '/profile',             label: 'Profile',   icon: Settings },
       ]
     }
   ],
@@ -74,6 +80,7 @@ const NAV_GROUPS = {
         { to: '/dashboard',    label: 'Overview',        icon: LayoutDashboard, exact: true },
         { to: '/appointments', label: 'My Appointments', icon: Calendar },
         { to: '/billing',      label: 'My Invoices',     icon: CreditCard },
+        { to: '/profile',      label: 'Profile',         icon: Settings },
       ]
     }
   ],
@@ -84,10 +91,11 @@ const NAV_GROUPS = {
         { to: '/dashboard',          label: 'Dashboard',  icon: LayoutDashboard, exact: true },
         { to: '/staff',              label: 'Staff',      icon: UserCog },
         { to: '/admin/analytics',    label: 'Analytics',  icon: BarChart2 },
-        { to: '/inventory',          label: 'Inventory',  icon: Box },
+        { to: '/inventory',          label: 'Inventory',  icon: Box, exact: true },
         { to: '/inventory/suppliers',label: 'Suppliers',  icon: Truck },
         { to: '/inventory/reports',  label: 'Reports',    icon: BarChart3 },
         { to: '/inventory/archived', label: 'Archived',   icon: Archive },
+        { to: '/profile',            label: 'Profile',    icon: Settings },
         { to: '/settings',           label: 'Settings',   icon: Settings },
       ]
     }
@@ -110,11 +118,27 @@ const ROLE_LABELS = {
   ADMIN: 'Administrator', OWNER: 'Owner',
 }
 
-/*  Single nav item  */
-function NavItem({ item, pathname }) {
-  const isActive = item.exact
+function isItemActive(item, pathname, siblings) {
+  const selfMatch = item.exact
     ? pathname === item.to
     : pathname === item.to || pathname.startsWith(item.to + '/')
+
+  if (!selfMatch || item.exact) return selfMatch
+
+  // If a more specific sibling route is active, keep only that child highlighted.
+  const hasMoreSpecificActiveSibling = siblings.some((s) => {
+    if (s.to === item.to) return false
+    const isChildOfItem = s.to.startsWith(item.to + '/')
+    if (!isChildOfItem) return false
+    return pathname === s.to || pathname.startsWith(s.to + '/')
+  })
+
+  return !hasMoreSpecificActiveSibling
+}
+
+/*  Single nav item  */
+function NavItem({ item, pathname, siblings }) {
+  const isActive = isItemActive(item, pathname, siblings)
   const Icon = item.icon
 
   return (
@@ -144,6 +168,7 @@ function NavItem({ item, pathname }) {
 export default function Sidebar() {
   const { user, logout, hasRole } = useAuth()
   const { pathname } = useLocation()
+  const [avatarLoadError, setAvatarLoadError] = useState(false)
 
   const primaryRole = ['ADMIN', 'OWNER', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'PHARMACIST', 'PATIENT']
     .find(r => hasRole(r)) || 'PATIENT'
@@ -152,7 +177,13 @@ export default function Sidebar() {
   const roleColor = ROLE_COLORS[primaryRole] || ROLE_COLORS['PATIENT']
   const roleLabel = ROLE_LABELS[primaryRole] || primaryRole
   const initials  = (user?.fullName || user?.firstName || 'U').charAt(0).toUpperCase()
+  const profilePhotoUrl = (user?.profilePhotoUrl || '').trim()
+  const showProfilePhoto = Boolean(profilePhotoUrl) && !avatarLoadError
   const logoSrc   = '/PrimeMedical.png'
+
+  useEffect(() => {
+    setAvatarLoadError(false)
+  }, [profilePhotoUrl])
 
   return (
     <aside className="sidebar-root">
@@ -162,8 +193,8 @@ export default function Sidebar() {
         className="flex items-center gap-3 px-4 shrink-0 border-b border-border"
         style={{ height: 'var(--header-height)' }}
       >
-        <div className="w-8 h-8 rounded-xl bg-primary overflow-hidden shrink-0">
-          <img src={logoSrc} alt="Prime Medical" className="w-full h-full object-cover" />
+        <div className="w-9 h-9 rounded-xl bg-white overflow-hidden shrink-0 p-1 ring-1 ring-border">
+          <img src={logoSrc} alt="Prime Medical" className="w-full h-full object-contain" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-foreground tracking-tight leading-tight">Prime Medical</p>
@@ -183,6 +214,7 @@ export default function Sidebar() {
                 key={item.to}
                 item={item}
                 pathname={pathname}
+                siblings={group.items}
               />
             ))}
           </div>
@@ -192,7 +224,23 @@ export default function Sidebar() {
       {/*  User Footer  */}
       <div className="px-2 py-3 border-t border-border shrink-0">
         <div className="px-3 py-2.5 rounded-xl bg-muted/40 flex items-center gap-2.5 mb-2">
-          <div className={`avatar avatar-sm text-xs shrink-0 ${roleColor}`}>{initials}</div>
+          <div
+            className={[
+              'avatar avatar-sm text-xs shrink-0 overflow-hidden flex items-center justify-center',
+              showProfilePhoto ? 'bg-muted' : roleColor,
+            ].join(' ')}
+          >
+            {showProfilePhoto ? (
+              <img
+                src={profilePhotoUrl}
+                alt="Profile"
+                className="w-full h-full object-cover"
+                onError={() => setAvatarLoadError(true)}
+              />
+            ) : (
+              initials
+            )}
+          </div>
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold text-foreground truncate leading-tight">
               {user?.fullName || user?.firstName || 'Staff Member'}

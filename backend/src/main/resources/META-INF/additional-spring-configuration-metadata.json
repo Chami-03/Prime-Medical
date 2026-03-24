@@ -1,0 +1,84 @@
+{
+  "properties": [
+    {
+      "name": "app.notification.email.from",
+      "type": "java.lang.String",
+      "description": "Default from address used for outbound emails."
+    },
+    {
+      "name": "app.notification.sms.notifylk.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Enable or disable Notify.lk SMS delivery."
+    },
+    {
+      "name": "app.notification.sms.notifylk.api-url",
+      "type": "java.lang.String",
+      "description": "Notify.lk API URL used to send SMS messages."
+    },
+    {
+      "name": "app.notification.sms.notifylk.api-key",
+      "type": "java.lang.String",
+      "description": "Notify.lk API key for SMS authentication."
+    },
+    {
+      "name": "app.notification.sms.notifylk.sender-id",
+      "type": "java.lang.String",
+      "description": "Optional sender ID passed to Notify.lk."
+    },
+    {
+      "name": "app.notification.sms.notifylk.user-id",
+      "type": "java.lang.String",
+      "description": "Optional user identifier for Notify.lk accounts requiring user_id."
+    },
+    {
+      "name": "app.notification.sms.force-destination-number",
+      "type": "java.lang.String",
+      "description": "Force all SMS messages to a single destination number for testing."
+    },
+    {
+      "name": "app.jwt.secret",
+      "type": "java.lang.String",
+      "description": "JWT signing secret key."
+    },
+    {
+      "name": "app.jwt.expiration-ms",
+      "type": "java.lang.Long",
+      "description": "JWT access token expiration in milliseconds."
+    },
+    {
+      "name": "app.jwt.refresh-expiration-ms",
+      "type": "java.lang.Long",
+      "description": "JWT refresh token expiration in milliseconds."
+    },
+    {
+      "name": "app.cors.allowed-origins",
+      "type": "java.lang.String",
+      "description": "Comma-separated list of allowed CORS origins."
+    },
+    {
+      "name": "app.ai.provider",
+      "type": "java.lang.String",
+      "description": "AI provider name used by the assistant service."
+    },
+    {
+      "name": "app.ai.api-url",
+      "type": "java.lang.String",
+      "description": "AI chat completion API URL."
+    },
+    {
+      "name": "app.ai.model",
+      "type": "java.lang.String",
+      "description": "Default AI model used for chat completions."
+    },
+    {
+      "name": "app.ai.api-key",
+      "type": "java.lang.String",
+      "description": "API key for the configured AI provider."
+    },
+    {
+      "name": "app.profile-photo.upload-dir",
+      "type": "java.lang.String",
+      "description": "Filesystem directory where uploaded profile photos are stored."
+    }
+  ]
+}

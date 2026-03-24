@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useFieldArray, useForm } from 'react-hook-form'
@@ -18,6 +18,8 @@ function parseDurationDays(value) {
 export default function PrescriptionPage() {
   const queryClient = useQueryClient()
   const [searchParams] = useSearchParams()
+  const [medicineSearch, setMedicineSearch] = useState('')
+  const [customMedicineName, setCustomMedicineName] = useState('')
   const { id: routeId } = useParams()
   const consultationId = searchParams.get('consultationId')
   const navigate = useNavigate()
@@ -34,8 +36,7 @@ export default function PrescriptionPage() {
     staleTime: 5 * 60 * 1000,
   })
 
-  const resolvedConsultationId =
-    consultationId || prescriptionRes?.data?.consultationId || ''
+  const resolvedConsultationId = consultationId || prescriptionRes?.data?.consultationId || ''
 
   const { data: consultationRes } = useQuery({
     queryKey: ['consultation-mini', resolvedConsultationId],
@@ -54,15 +55,74 @@ export default function PrescriptionPage() {
     staleTime: 60 * 1000,
   })
 
-  const { register, control, handleSubmit, formState: { isSubmitting }, reset, setValue } = useForm({
+  const {
+    register,
+    control,
+    handleSubmit,
+    formState: { isSubmitting },
+    reset,
+    setValue,
+  } = useForm({
     defaultValues: {
       consultationId: resolvedConsultationId,
-      items: [{ inventoryItemId: '', drugName: '', dosage: '', frequency: '1-0-1', durationDays: 5, quantity: 10, instructions: '' }],
+      items: [
+        {
+          inventoryItemId: '',
+          drugName: '',
+          dosage: '',
+          frequency: '1-0-1',
+          durationDays: 5,
+          quantity: 10,
+          instructions: '',
+        },
+      ],
       notes: '',
     },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'items' })
+
+  const findItemIndexByInventoryId = (inventoryItemId) =>
+    fields.findIndex((item) => String(item?.inventoryItemId || '') === String(inventoryItemId))
+
+  const toggleInventoryMedicine = (drug, checked) => {
+    const existingIndex = findItemIndexByInventoryId(drug.id)
+    if (checked && existingIndex === -1) {
+      append({
+        inventoryItemId: String(drug.id),
+        drugName: drug.drugName || '',
+        dosage: '',
+        frequency: '1-0-1',
+        durationDays: 5,
+        quantity: 1,
+        instructions: '',
+      })
+      return
+    }
+
+    if (!checked && existingIndex !== -1) {
+      remove(existingIndex)
+    }
+  }
+
+  const addManualCustomMedicine = () => {
+    const name = customMedicineName.trim()
+    if (!name) {
+      toast.error('Enter medicine name to add custom medicine')
+      return
+    }
+
+    append({
+      inventoryItemId: '',
+      drugName: name,
+      dosage: '',
+      frequency: '1-0-1',
+      durationDays: 5,
+      quantity: 1,
+      instructions: '',
+    })
+    setCustomMedicineName('')
+  }
 
   useEffect(() => {
     if (!isEditMode || !prescriptionRes?.data) return
@@ -72,7 +132,7 @@ export default function PrescriptionPage() {
       notes: p.notes || '',
       items: (p.items || []).map((item) => ({
         inventoryItemId: item.inventoryItemId || '',
-          drugName: item.drugName || '',
+        drugName: item.drugName || '',
         dosage: item.dosage || '',
         frequency: item.frequency || '1-0-1',
         durationDays: item.durationDays || 5,
@@ -132,13 +192,30 @@ export default function PrescriptionPage() {
   const consultation = consultationRes?.data
   const drugs = inventoryRes?.data || []
 
+  const filteredDrugs = useMemo(() => {
+    const keyword = medicineSearch.trim().toLowerCase()
+    if (!keyword) return drugs
+
+    return drugs.filter((drug) => {
+      const drugName = String(drug?.drugName || '').toLowerCase()
+      const genericName = String(drug?.genericName || '').toLowerCase()
+      return drugName.includes(keyword) || genericName.includes(keyword)
+    })
+  }, [drugs, medicineSearch])
+
+  const customItems = fields
+    .map((field, index) => ({ ...field, index }))
+    .filter((item) => !item.inventoryItemId)
+
   const toPayload = (form) => ({
     consultationId: Number(form.consultationId || resolvedConsultationId),
     notes: form.notes,
     items: (form.items || []).map((item) => {
-      const invId = item.inventoryItemId ? Number(item.inventoryItemId) : null
+      const parsedInvId = Number(item.inventoryItemId)
+      const invId = Number.isFinite(parsedInvId) && parsedInvId > 0 ? parsedInvId : null
       const inv = drugs.find((d) => d.id === invId)
       const manualDrugName = String(item.drugName || '').trim()
+
       return {
         inventoryItemId: invId,
         drugName: inv?.drugName || manualDrugName || 'Unknown Drug',
@@ -159,10 +236,12 @@ export default function PrescriptionPage() {
     }
 
     const hasInvalidItem = (data.items || []).some((item) => {
-      const hasInventory = !!item.inventoryItemId
+      const invId = Number(item.inventoryItemId)
+      const hasInventory = Number.isFinite(invId) && invId > 0
       const hasDrugName = String(item.drugName || '').trim().length > 0
       return !hasInventory && !hasDrugName
     })
+
     if (hasInvalidItem) {
       toast.error('Select medicine or enter manual medicine name for each item')
       return
@@ -170,6 +249,7 @@ export default function PrescriptionPage() {
 
     const payload = toPayload(data)
     payload.consultationId = effectiveConsultationId
+
     if (isEditMode) {
       updateMutation.mutate({ id: routePrescriptionId, data: payload })
     } else {
@@ -190,78 +270,243 @@ export default function PrescriptionPage() {
             </p>
           )}
         </div>
-
-        <RoleProtected allowedRoles={['DOCTOR']}>
-          <button
-            type="button"
-            className="btn-secondary h-9 px-3 text-sm flex items-center gap-1.5"
-            onClick={() => append({ inventoryItemId: '', drugName: '', dosage: '', frequency: '1-0-1', durationDays: 5, quantity: 10, instructions: '' })}
-          >
-            <Plus size={14} /> Add Medicine
-          </button>
-        </RoleProtected>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <input type="hidden" {...register('consultationId', { required: true })} />
 
-        {fields.map((field, index) => (
-          <div key={field.id} className="pm-card p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-primary uppercase tracking-wide">Medicine {index + 1}</span>
-              <button
-                type="button"
-                disabled={fields.length === 1}
-                onClick={() => remove(index)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-destructive hover:bg-destructive hover:text-white disabled:opacity-30 transition-colors border border-destructive/20"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
-              <div className="md:col-span-4">
-                <label className="form-label">Select Medicine</label>
-                <select className="form-input mt-1" {...register(`items.${index}.inventoryItemId`)}>
-                  <option value="">Choose medication</option>
-                  {drugs.map((item) => (
-                    <option key={item.id} value={item.id}>{item.drugName} ({item.quantity} available)</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="form-label">Manual Medicine Name</label>
-                <input className="form-input mt-1" placeholder="Type if not in inventory" {...register(`items.${index}.drugName`)} />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="form-label">Dosage</label>
-                <input className="form-input mt-1" placeholder="500mg" {...register(`items.${index}.dosage`, { required: true })} />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="form-label">Frequency</label>
-                <input className="form-input mt-1 font-mono" placeholder="1-0-1" {...register(`items.${index}.frequency`, { required: true })} />
-              </div>
-
-              <div className="md:col-span-2">
-                <label className="form-label">Duration Days</label>
-                <input type="number" min="1" className="form-input mt-1" {...register(`items.${index}.durationDays`, { required: true })} />
-              </div>
-
-              <div className="md:col-span-1">
-                <label className="form-label">Qty</label>
-                <input type="number" min="1" className="form-input mt-1 text-center" {...register(`items.${index}.quantity`, { required: true })} />
-              </div>
-
-              <div className="md:col-span-12">
-                <label className="form-label">Patient Instructions</label>
-                <input className="form-input mt-1" placeholder="e.g. Take after food" {...register(`items.${index}.instructions`)} />
-              </div>
+        <div className="pm-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground">Add Medicines from Inventory</p>
+            <div className="flex items-center gap-2 w-full max-w-lg">
+              <input
+                type="text"
+                className="form-input h-8 w-full text-xs"
+                placeholder="Medicine Search"
+                value={medicineSearch}
+                onChange={(e) => setMedicineSearch(e.target.value)}
+              />
             </div>
           </div>
-        ))}
+          <div className="overflow-x-auto">
+            <table className="pm-table min-w-[980px]">
+              <thead>
+                <tr>
+                  <th className="w-12">Add</th>
+                  <th>Medicine</th>
+                  <th className="w-28">Available</th>
+                  <th className="w-28">Dosage</th>
+                  <th className="w-24">Frequency</th>
+                  <th className="w-28">Duration (days)</th>
+                  <th className="w-24">Qty</th>
+                  <th>Instructions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDrugs.map((drug) => {
+                  const itemIndex = findItemIndexByInventoryId(drug.id)
+                  const selected = itemIndex !== -1
+
+                  return (
+                    <tr key={drug.id} className={selected ? 'bg-primary/5' : ''}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={(e) => toggleInventoryMedicine(drug, e.target.checked)}
+                          className="w-4 h-4 accent-primary"
+                        />
+                      </td>
+                      <td>
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{drug.drugName}</p>
+                          {drug.genericName && <p className="text-xs text-muted-foreground">{drug.genericName}</p>}
+                        </div>
+                      </td>
+                      <td className="text-sm text-muted-foreground">{drug.quantity ?? 0}</td>
+                      <td>
+                        {selected ? (
+                          <input
+                            className="form-input h-8 text-xs"
+                            placeholder="500mg"
+                            {...register(`items.${itemIndex}.dosage`, { required: true })}
+                          />
+                        ) : (
+                          <input className="form-input h-8 text-xs" placeholder="500mg" disabled />
+                        )}
+                      </td>
+                      <td>
+                        {selected ? (
+                          <input
+                            className="form-input h-8 text-xs font-mono"
+                            placeholder="1-0-1"
+                            {...register(`items.${itemIndex}.frequency`, { required: true })}
+                          />
+                        ) : (
+                          <input className="form-input h-8 text-xs font-mono" placeholder="1-0-1" disabled />
+                        )}
+                      </td>
+                      <td>
+                        {selected ? (
+                          <input
+                            type="number"
+                            min="1"
+                            className="form-input h-8 text-xs"
+                            {...register(`items.${itemIndex}.durationDays`, { required: true })}
+                          />
+                        ) : (
+                          <input type="number" min="1" className="form-input h-8 text-xs" disabled />
+                        )}
+                      </td>
+                      <td>
+                        {selected ? (
+                          <input
+                            type="number"
+                            min="1"
+                            className="form-input h-8 text-xs"
+                            {...register(`items.${itemIndex}.quantity`, { required: true })}
+                          />
+                        ) : (
+                          <input type="number" min="1" className="form-input h-8 text-xs" disabled />
+                        )}
+                      </td>
+                      <td>
+                        {selected ? (
+                          <input
+                            className="form-input h-8 text-xs"
+                            placeholder="After food"
+                            {...register(`items.${itemIndex}.instructions`)}
+                          />
+                        ) : (
+                          <input className="form-input h-8 text-xs" placeholder="After food" disabled />
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {filteredDrugs.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="py-6 text-center text-sm text-muted-foreground">
+                      No medicines found for this search.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="pm-card p-4">
+          <p className="text-sm font-semibold text-foreground">Custom Medicines (Not in Pharmacy Inventory)</p>
+          <p className="text-xs text-muted-foreground mt-1">Enter medicine name and add it as a custom prescription item.</p>
+          <RoleProtected allowedRoles={['DOCTOR']}>
+            <div className="mt-3 flex flex-col sm:flex-row gap-2 sm:items-center">
+              <input
+                type="text"
+                className="form-input h-9 flex-1"
+                placeholder="Medicine Name"
+                value={customMedicineName}
+                onChange={(e) => setCustomMedicineName(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-secondary h-9 px-3 text-sm flex items-center justify-center gap-1.5"
+                onClick={addManualCustomMedicine}
+              >
+                <Plus size={14} /> Add
+              </button>
+            </div>
+          </RoleProtected>
+        </div>
+
+        <div className="pm-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground">Custom Medicines</p>
+            <p className="text-xs text-muted-foreground">Medicines not available in pharmacy inventory</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="pm-table min-w-[980px]">
+              <thead>
+                <tr>
+                  <th>Medicine Name</th>
+                  <th className="w-28">Dosage</th>
+                  <th className="w-24">Frequency</th>
+                  <th className="w-28">Duration (days)</th>
+                  <th className="w-24">Qty</th>
+                  <th>Instructions</th>
+                  <th className="w-16">Remove</th>
+                </tr>
+              </thead>
+              <tbody>
+                {customItems.map((item) => (
+                  <tr key={item.id}>
+                    <td>
+                      <input
+                        className="form-input h-9 text-sm"
+                        placeholder="Type medicine name"
+                        {...register(`items.${item.index}.drugName`)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="form-input h-9 text-sm"
+                        placeholder="500mg"
+                        {...register(`items.${item.index}.dosage`, { required: true })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="form-input h-9 text-sm font-mono"
+                        placeholder="1-0-1"
+                        {...register(`items.${item.index}.frequency`, { required: true })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input h-9 text-sm"
+                        {...register(`items.${item.index}.durationDays`, { required: true })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-input h-9 text-sm"
+                        {...register(`items.${item.index}.quantity`, { required: true })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="form-input h-9 text-sm"
+                        placeholder="e.g. Take after food"
+                        {...register(`items.${item.index}.instructions`)}
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => remove(item.index)}
+                        className="w-8 h-8 rounded-lg mx-auto flex items-center justify-center text-destructive hover:bg-destructive hover:text-white transition-colors border border-destructive/20"
+                        title="Remove custom medicine"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {customItems.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-sm text-muted-foreground">
+                      No custom medicines added yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <div className="pm-card p-5">
           <label className="form-label">Pharmacy Notes</label>

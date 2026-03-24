@@ -28,6 +28,12 @@ export const patientApi = {
     delete: (id) =>
         api.delete(`/patients/${id}`).then((r) => r.data),
 
+    deleteMyAccount: () =>
+        api.delete('/patients/me').then((r) => r.data),
+
     addAllergy: (id, allergyData) =>
         api.post(`/patients/${id}/allergies`, allergyData).then((r) => r.data),
+
+    updateAllergy: (id, allergyId, allergyData) =>
+        api.put(`/patients/${id}/allergies/${allergyId}`, allergyData).then((r) => r.data),
 }

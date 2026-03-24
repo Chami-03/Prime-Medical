@@ -32,7 +32,7 @@ function Reveal({ children, delay = 0 }) {
           observer.disconnect()
         }
       },
-      { threshold: 0.2 }
+      { threshold: 0.2 },
     )
 
     observer.observe(ref.current)
@@ -100,7 +100,7 @@ const FAQS = [
   },
   {
     q: 'Can hospitals customize the platform?',
-    a: 'Yes. The platform can be configured to align with each medical center’s operational processes and structure.',
+    a: "Yes. The platform can be configured to align with each medical center's operational processes and structure.",
   },
   {
     q: 'How do I register?',
@@ -111,7 +111,8 @@ const FAQS = [
 export default function LandingPage() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [openFaq, setOpenFaq] = useState(0)
-  const logoSrc = '/PrimeMedical.png'
+  const heroLogoSrc = '/PrimeMedicalLP.png'
+  const footerLogoSrc = '/PrimeMedicalWM.png'
 
   const closeMobile = () => setMobileOpen(false)
 
@@ -119,8 +120,7 @@ export default function LandingPage() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="fixed top-0 inset-x-0 z-50 border-b border-border/70 bg-card/70 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3">
-            <img src={logoSrc} alt="Prime Medical" className="w-11 h-11 object-contain" />
+          <Link to="/" className="flex items-center">
             <span className="font-semibold tracking-tight text-base">Prime Medical</span>
           </Link>
 
@@ -172,64 +172,57 @@ export default function LandingPage() {
         <section id="home" className="scroll-mt-20 relative overflow-hidden">
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute -top-28 -left-16 w-80 h-80 rounded-full bg-primary/20 blur-3xl" />
-            <div className="absolute top-1/3 right-0 w-80 h-80 rounded-full bg-cyan-500/20 blur-3xl" />
+            <div className="absolute top-1/3 right-0 w-80 h-80 rounded-full bg-primary/20 blur-3xl" />
           </div>
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 md:py-24 grid lg:grid-cols-2 gap-10 items-center relative z-10">
             <Reveal>
               <div className="space-y-6">
-                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight">
-                  Prime Medical
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary px-3 py-1 text-xs font-semibold">
+                  <Sparkles size={12} /> Digital Healthcare Platform
+                </span>
+
+                <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight leading-tight max-w-xl">
+                  Smarter Care For
+                  <span className="text-primary"> Modern Medical Centers</span>
                 </h1>
 
                 <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
-                  Prime Medical is a secure digital healthcare platform that helps medical centers manage patient records,
-                  appointments, consultations, prescriptions, billing, and pharmacy operations in an organized environment.
-                </p>
-
-                <p className="text-base text-muted-foreground">
-                  Improve care coordination, streamline daily workflows, and deliver better healthcare experiences with one unified system.
+                  Prime Medical helps teams manage patient records, appointments, consultations, prescriptions,
+                  billing, and pharmacy operations in one connected system.
                 </p>
 
                 <div className="flex flex-wrap gap-3 pt-2">
-                  <Link to="/register" className="btn-primary rounded-2xl px-6 py-3 shadow-soft hover:-translate-y-0.5 transition-transform">
+                  <Link to="/register" className="btn-primary rounded-2xl px-6 py-3 shadow-soft hover:-translate-y-0.5 transition-transform inline-flex items-center gap-2">
                     Get Started
+                    <ArrowRight size={15} />
                   </Link>
                   <a href="#about" className="btn-outline rounded-2xl px-6 py-3 shadow-soft hover:-translate-y-0.5 transition-transform">
-                    Learn More
+                    Explore Platform
                   </a>
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 pt-2 max-w-md">
+                  <div>
+                    <p className="text-foreground text-2xl font-bold">10K+</p>
+                    <p className="text-[11px] text-muted-foreground">Patient Records</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground text-2xl font-bold">1M</p>
+                    <p className="text-[11px] text-muted-foreground">Consultations</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground text-2xl font-bold">22%</p>
+                    <p className="text-[11px] text-muted-foreground">Faster Operations</p>
+                  </div>
                 </div>
               </div>
             </Reveal>
 
             <Reveal delay={120}>
-              <div className="rounded-3xl border border-border/60 bg-card/65 backdrop-blur-xl p-6 md:p-8 shadow-soft">
-                <div className="rounded-2xl border border-border bg-background/80 p-6 space-y-6">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-card border border-border p-4">
-                      <p className="text-xs text-muted-foreground">Security</p>
-                      <p className="text-sm font-semibold mt-1">Protected Access</p>
-                    </div>
-                    <div className="rounded-xl bg-card border border-border p-4">
-                      <p className="text-xs text-muted-foreground">Performance</p>
-                      <p className="text-sm font-semibold mt-1">Fast Workflows</p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-border bg-card p-5">
-                    <p className="text-sm text-muted-foreground">Trusted by modern healthcare teams to deliver organized, connected patient services.</p>
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-                      <div className="h-2 rounded-full bg-primary/25" />
-                      <div className="h-2 rounded-full bg-primary/45" />
-                      <div className="h-2 rounded-full bg-primary/70" />
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
-                    <ShieldCheck size={18} className="text-primary" />
-                    <span className="text-sm">Built for professional medical center environments</span>
-                  </div>
-                </div>
+              <div className="relative w-full max-w-[520px] mx-auto">
+                <div className="absolute inset-6 rounded-full bg-primary/30 blur-3xl" />
+                <img src={heroLogoSrc} alt="Prime Medical Hero" className="relative z-10 w-full h-auto object-contain drop-shadow-[0_22px_30px_rgba(37,99,235,0.35)]" />
               </div>
             </Reveal>
           </div>
@@ -263,6 +256,33 @@ export default function LandingPage() {
                 </Reveal>
               ))}
             </div>
+
+            <Reveal delay={260}>
+              <article className="mt-6 rounded-2xl border border-border/70 bg-card/75 backdrop-blur-xl p-6 shadow-soft">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/15 text-primary">Doctor Profile</span>
+                  <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700">MBBS</span>
+                </div>
+                <h3 className="mt-4 text-lg font-semibold">Dr. Pulasthi Senevirathne</h3>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                  Experienced in primary care and outpatient consultation workflows with a patient-first approach.
+                </p>
+                <div className="mt-4 grid sm:grid-cols-3 gap-3 text-sm">
+                  <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+                    <p className="text-muted-foreground">Degree</p>
+                    <p className="font-medium">MBBS (Bachelor of Medicine, Bachelor of Surgery)</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+                    <p className="text-muted-foreground">University</p>
+                    <p className="font-medium">University of Peradeniya, Sri Lanka</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2">
+                    <p className="text-muted-foreground">Experience</p>
+                    <p className="font-medium">8+ years</p>
+                  </div>
+                </div>
+              </article>
+            </Reveal>
           </div>
         </section>
 
@@ -384,8 +404,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 grid md:grid-cols-4 gap-8">
           <div>
             <div className="flex items-center gap-2.5">
-              <span className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-                <img src={logoSrc} alt="Prime Medical" className="w-[90%] h-[90%] object-contain" />
+              <span className="w-10 h-10 rounded-lg bg-white ring-1 ring-border flex items-center justify-center p-1">
+                <img src={footerLogoSrc} alt="Prime Medical" className="w-full h-full object-contain" />
               </span>
               <span className="font-semibold">Prime Medical</span>
             </div>
@@ -405,7 +425,7 @@ export default function LandingPage() {
           <div>
             <h3 className="font-semibold">Contact</h3>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              <li>Email: support@primemedical.lk</li>
+              <li>Email: support.primemedical@gmail.com</li>
               <li>Phone: +94 11 234 5678</li>
               <li>Location: Colombo, Sri Lanka</li>
             </ul>
@@ -414,8 +434,8 @@ export default function LandingPage() {
           <div>
             <h3 className="font-semibold">Legal</h3>
             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-              <li><a href="#" className="hover:text-foreground">Privacy Policy</a></li>
-              <li><a href="#" className="hover:text-foreground">Terms of Service</a></li>
+              <li><Link to="/privacy-policy" className="hover:text-foreground">Privacy Policy</Link></li>
+              <li><Link to="/terms-of-service" className="hover:text-foreground">Terms of Service</Link></li>
             </ul>
             <div className="mt-4 inline-flex items-center gap-2 text-xs text-muted-foreground">
               <CheckCircle2 size={14} className="text-primary" />

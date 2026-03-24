@@ -1,7 +1,7 @@
 ﻿import { useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Search, UserPlus, Phone, Calendar, UserCheck, ExternalLink } from 'lucide-react'
+import { Search, UserPlus, Phone, Calendar, UserCheck, ExternalLink, Trash2 } from 'lucide-react'
 import { patientApi } from '../../api/patientApi'
 import { queueApi } from '../../api/queueApi'
 import { RoleProtected } from '../../context/AuthContext'
@@ -26,27 +26,80 @@ export default function PatientSearchPage() {
     onError: () => toast.error('Check-in failed'),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (id) => patientApi.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+      queryClient.invalidateQueries({ queryKey: ['patient'] })
+      toast.success('Patient deleted permanently')
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || 'Failed to delete patient')
+    },
+  })
+
+  const handleDeletePatient = (patient) => {
+    if (!patient?.id) return
+    const ok = window.confirm(`Delete patient ${patient.firstName || ''} ${patient.lastName || ''} permanently? This cannot be undone.`)
+    if (!ok) return
+    deleteMutation.mutate(patient.id)
+  }
+
   const { data, isLoading } = useQuery({
     queryKey: ['patients', query],
     queryFn: () => (query.trim() ? patientApi.search(query) : patientApi.getAll()),
     enabled: true,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
   })
 
   const patients = Array.isArray(data) ? data : data?.data || []
+  const femaleCount = patients.filter((p) => (p?.gender || '').toUpperCase().startsWith('F')).length
+  const maleCount = patients.filter((p) => (p?.gender || '').toUpperCase().startsWith('M')).length
 
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-foreground">Patients</h2>
-        <RoleProtected allowedRoles={['DOCTOR', 'RECEPTIONIST']}>
-          <Link to="/patients/register">
-            <Button size="sm" className="flex items-center gap-1.5">
-              <UserPlus size={14} />
-              Register Patient
-            </Button>
-          </Link>
-        </RoleProtected>
+      <div className="epic-shell space-y-4">
+        <div className="epic-toolbar">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">Patients</h2>
+            <p className="text-sm text-muted-foreground mt-0.5">Search, check-in, and manage patient records from one place.</p>
+          </div>
+          <div className="epic-toolbar-actions">
+            <RoleProtected allowedRoles={['DOCTOR', 'RECEPTIONIST']}>
+              <Link to="/patients/register">
+                <Button size="sm" className="flex items-center gap-1.5">
+                  <UserPlus size={14} />
+                  Register Patient
+                </Button>
+              </Link>
+            </RoleProtected>
+          </div>
+        </div>
+
+        <div className="epic-kpi-grid">
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Total Patients</p>
+            <p className="epic-kpi-value">{patients.length}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Female</p>
+            <p className="epic-kpi-value">{femaleCount}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Male</p>
+            <p className="epic-kpi-value">{maleCount}</p>
+          </div>
+          <div className="epic-kpi">
+            <p className="epic-kpi-label">Search Filter</p>
+            <p className="epic-kpi-value text-base truncate">{query.trim() || 'All'}</p>
+          </div>
+        </div>
       </div>
 
       {/* Search */}
@@ -132,6 +185,16 @@ export default function PatientSearchPage() {
                       >
                         <ExternalLink size={15} />
                       </button>
+                      <RoleProtected allowedRoles={['RECEPTIONIST', 'ADMIN']}>
+                        <button
+                          title="Delete Patient"
+                          className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive transition-colors disabled:opacity-50"
+                          onClick={() => handleDeletePatient(patient)}
+                          disabled={deleteMutation.isPending}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </RoleProtected>
                     </div>
                   </td>
                 </tr>

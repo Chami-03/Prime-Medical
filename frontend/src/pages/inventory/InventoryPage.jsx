@@ -127,6 +127,13 @@ function ItemForm({ register, suppliers, isEdit = false }) {
 
 export default function InventoryPage() {
   const queryClient = useQueryClient()
+  const refreshInventoryReporting = () => {
+    queryClient.invalidateQueries({ queryKey: ['inventory'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory-all'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory-alerts'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory-activity'] })
+    queryClient.invalidateQueries({ queryKey: ['inventory-report'] })
+  }
   const [searchQuery, setSearchQuery] = useState('')
   const [filters, setFilters] = useState({ category: '', stockLevel: '' })
   const [showFilters, setShowFilters] = useState(false)
@@ -159,7 +166,7 @@ export default function InventoryPage() {
   const addMutation = useMutation({
     mutationFn: (data) => inventoryApi.add(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      refreshInventoryReporting()
       toast.success('Item added')
       setAddModal(false)
       resetAdd()
@@ -170,7 +177,7 @@ export default function InventoryPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => inventoryApi.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      refreshInventoryReporting()
       toast.success('Item updated')
       setEditingItem(null)
     },
@@ -180,7 +187,7 @@ export default function InventoryPage() {
   const adjustMutation = useMutation({
     mutationFn: ({ id, data }) => inventoryApi.adjustStock(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      refreshInventoryReporting()
       toast.success('Stock adjusted')
       setAdjustItem(null)
     },
@@ -190,7 +197,7 @@ export default function InventoryPage() {
   const deleteMutation = useMutation({
     mutationFn: ({ id, reason }) => inventoryApi.delete(id, reason),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      refreshInventoryReporting()
       toast.success('Item archived')
       setDeleteItem(null)
     },
@@ -241,8 +248,8 @@ export default function InventoryPage() {
       unitPrice: parseFloat(d.unitPrice) || 0,
       sellingPrice: parseFloat(d.sellingPrice) || parseFloat(d.unitPrice) || 0,
       purchasePrice: parseFloat(d.purchasePrice) || 0,
-      expiryDate: d.expiryDate,
-      batchNumber: d.batchNumber,
+      expiryDate: d.expiryDate || null,
+      batchNumber: d.batchNumber || null,
       supplierId: d.supplierId ? parseInt(d.supplierId) : null,
       storageLocation: d.storageLocation,
       unit: d.unit || 'tablets',
@@ -252,22 +259,30 @@ export default function InventoryPage() {
 
   const onEditSubmit = (d) => {
     if (!editingItem) return
+
+    const supplierId = d.supplierId ? parseInt(d.supplierId, 10) : null
+    const selectedSupplier = supplierId
+      ? suppliers.find((s) => Number(s.id) === supplierId)
+      : null
+
     updateMutation.mutate({
       id: editingItem.id,
       data: {
-        ...editingItem,
+        quantity: parseInt(editingItem.quantity, 10) || 0,
         drugName: d.drugName,
         genericName: d.genericName,
         category: d.category,
         description: d.description,
-        unitPrice: parseFloat(d.unitPrice) || 0,
+        unitCost: parseFloat(d.unitPrice) || 0,
         sellingPrice: parseFloat(d.sellingPrice) || parseFloat(d.unitPrice) || 0,
         purchasePrice: parseFloat(d.purchasePrice) || 0,
-        expiryDate: d.expiryDate,
-        batchNumber: d.batchNumber,
+        expiryDate: d.expiryDate || null,
+        batchNumber: d.batchNumber || null,
         storageLocation: d.storageLocation,
         unit: d.unit || 'tablets',
         lowStockThreshold: parseInt(d.lowStockThreshold) || 10,
+        supplier: selectedSupplier?.name || editingItem.supplier || '',
+        supplierEntity: supplierId ? { id: supplierId } : null,
       },
     })
   }
@@ -391,7 +406,7 @@ export default function InventoryPage() {
           <div>
             <label className="form-label text-xs">Category</label>
             <select
-              className="form-input mt-1 h-8 text-sm"
+              className="form-select mt-1 h-10 text-sm"
               value={filters.category}
               onChange={(e) => { setFilters(f => ({ ...f, category: e.target.value })); setPage(1) }}
             >
@@ -402,13 +417,14 @@ export default function InventoryPage() {
           <div>
             <label className="form-label text-xs">Stock Level</label>
             <select
-              className="form-input mt-1 h-8 text-sm"
+              className="form-select mt-1 h-10 text-sm"
               value={filters.stockLevel}
               onChange={(e) => { setFilters(f => ({ ...f, stockLevel: e.target.value })); setPage(1) }}
             >
               <option value="">All</option>
-              <option value="LOW">Low stock</option>
-              <option value="OUT">Out of stock</option>
+              <option value="low">Low stock</option>
+              <option value="out">Out of stock</option>
+              <option value="high">Healthy stock</option>
             </select>
           </div>
         </div>
@@ -487,7 +503,14 @@ export default function InventoryPage() {
                           <RoleProtected allowedRoles={['ADMIN', 'PHARMACIST']}>
                             <button
                               className="w-7 h-7 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                              onClick={() => { setEditingItem(item); resetEdit(item) }}
+                              onClick={() => {
+                                setEditingItem(item)
+                                resetEdit({
+                                  ...item,
+                                  unitPrice: item.unitCost ?? item.unitPrice ?? '',
+                                  supplierId: item.supplierEntity?.id ?? '',
+                                })
+                              }}
                             >
                               <Pencil size={13} />
                             </button>

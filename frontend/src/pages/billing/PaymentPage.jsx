@@ -1,25 +1,38 @@
-﻿import { useEffect } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { toast } from 'react-hot-toast'
-import { ArrowLeft, CreditCard, Banknote, Smartphone } from 'lucide-react'
+import { ArrowLeft, CreditCard, Banknote, Smartphone, Receipt, User } from 'lucide-react'
 import { billingApi } from '../../api/billingApi'
 import Badge from '../../components/common/Badge'
+import { getLatestPayment, printBillReceipt } from '../../utils/receiptPrinter'
 
 const PAYMENT_METHODS = [
   { value: 'CASH', label: 'Cash', icon: Banknote },
   { value: 'CARD', label: 'Card', icon: CreditCard },
-  { value: 'MOBILE', label: 'Mobile Pay', icon: Smartphone },
+  { value: 'BANK_TRANSFER', label: 'Bank Transfer', icon: Smartphone },
 ]
+
+const toMoney = (value) => Number(value ?? 0)
+const roundMoney = (value) => Math.round((toMoney(value) + Number.EPSILON) * 100) / 100
+const formatMoney = (value) =>
+  roundMoney(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const isPayableStatus = (status) => status !== 'PAID' && status !== 'REFUNDED'
+const unwrapBill = (payload) => payload?.data?.data || payload?.data || payload || null
 
 export default function PaymentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [paidBill, setPaidBill] = useState(null)
+  const billId = Number(id)
+  const hasValidBillId = Number.isInteger(billId) && billId > 0
 
-  const { data: billRes, isLoading } = useQuery({
-    queryKey: ['bill', id],
-    queryFn: () => billingApi.getById(id),
+  const { data: billRes, isLoading, isError, error } = useQuery({
+    queryKey: ['bill', billId],
+    queryFn: () => billingApi.getById(billId),
+    enabled: hasValidBillId,
   })
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
@@ -27,16 +40,50 @@ export default function PaymentPage() {
   })
 
   useEffect(() => {
-    if (billRes?.data) {
-      reset({ paymentMethod: 'CASH', notes: '', paymentReference: '', amount: billRes.data.netAmount })
+    const billData = unwrapBill(billRes)
+    if (billData) {
+      reset({ paymentMethod: 'CASH', notes: '', paymentReference: '', amount: billData.netAmount })
     }
   }, [billRes, reset])
 
   const payMutation = useMutation({
-    mutationFn: (data) => billingApi.processPayment(id, { ...data, amount: Number(data.amount) }),
-    onSuccess: () => { toast.success('Payment processed successfully'); navigate('/billing') },
+    mutationFn: (data) => billingApi.processPayment(billId, { ...data, amount: roundMoney(data.amount) }),
+    onSuccess: (response) => {
+      const updatedBill = response?.data || response
+      setPaidBill(updatedBill)
+      const updatedPaidTotal = (Array.isArray(updatedBill?.payments) ? updatedBill.payments : [])
+        .reduce((sum, payment) => sum + toMoney(payment?.amount), 0)
+      const updatedBalance = Math.max(roundMoney(updatedBill?.netAmount) - roundMoney(updatedPaidTotal), 0)
+      toast.success(updatedBalance <= 0 ? 'Payment completed successfully' : 'Payment recorded successfully')
+    },
     onError: (err) => toast.error(err.response?.data?.message || 'Payment failed'),
   })
+
+  const bill = paidBill || unwrapBill(billRes)
+  const lineItems = Array.isArray(bill?.lineItems) ? bill.lineItems : []
+  const paidTotal = (Array.isArray(bill?.payments) ? bill.payments : [])
+    .reduce((sum, payment) => sum + toMoney(payment?.amount), 0)
+  const netAmount = roundMoney(bill?.netAmount)
+  const balanceDue = Math.max(roundMoney(netAmount - paidTotal), 0)
+  const isBillPayable = isPayableStatus(bill?.status)
+  const selectedMethod = watch('paymentMethod')
+
+  useEffect(() => {
+    if (!bill) return
+    setValue('amount', balanceDue)
+  }, [bill, balanceDue, setValue])
+
+  if (!hasValidBillId) return (
+    <div className="pm-card p-6 text-center space-y-3">
+      <p className="text-sm font-medium text-foreground">Invalid invoice link</p>
+      <p className="text-xs text-muted-foreground">This payment URL does not contain a valid bill ID.</p>
+      <div>
+        <button className="btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/billing')}>
+          Back to Billing
+        </button>
+      </div>
+    </div>
+  )
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
@@ -44,8 +91,37 @@ export default function PaymentPage() {
     </div>
   )
 
-  const bill = billRes?.data
-  const selectedMethod = watch('paymentMethod')
+  if (isError && !bill) return (
+    <div className="pm-card p-6 text-center space-y-3">
+      <p className="text-sm font-medium text-foreground">Unable to load invoice</p>
+      <p className="text-xs text-muted-foreground">{error?.response?.data?.message || error?.message || 'Please try again.'}</p>
+      <div>
+        <button className="btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/billing')}>
+          Back to Billing
+        </button>
+      </div>
+    </div>
+  )
+
+  if (!bill) return (
+    <div className="pm-card p-6 text-center space-y-3">
+      <p className="text-sm font-medium text-foreground">Invoice not found</p>
+      <p className="text-xs text-muted-foreground">The selected invoice is unavailable.</p>
+      <div>
+        <button className="btn-secondary h-9 px-4 text-sm" onClick={() => navigate('/billing')}>
+          Back to Billing
+        </button>
+      </div>
+    </div>
+  )
+
+  const handlePrintReceipt = () => {
+    const latestPayment = getLatestPayment(bill)
+    const result = printBillReceipt(bill, latestPayment)
+    if (!result.ok) {
+      toast.error(result.reason || 'Unable to print receipt')
+    }
+  }
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -64,6 +140,50 @@ export default function PaymentPage() {
         <Badge status={bill?.status} />
       </div>
 
+      {paidBill && (
+        <div className="pm-card p-4 border border-emerald-200 bg-emerald-50/60 dark:bg-emerald-900/10 dark:border-emerald-800/30">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                {balanceDue <= 0 ? 'Payment complete' : 'Payment updated'}
+              </p>
+              <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                {balanceDue <= 0
+                  ? `Receipt is ready for Invoice #${paidBill.invoiceNumber}`
+                  : `Remaining balance: LKR ${formatMoney(balanceDue)}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary h-9 px-3 text-sm flex items-center gap-1.5"
+                onClick={handlePrintReceipt}
+              >
+                <Receipt size={14} />
+                Print Receipt
+              </button>
+              {!!paidBill?.patientId && (
+                <button
+                  type="button"
+                  className="btn-primary h-9 px-3 text-sm flex items-center gap-1.5"
+                  onClick={() => navigate(`/patients/${paidBill.patientId}`)}
+                >
+                  <User size={14} />
+                  Open Patient Profile
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn-secondary h-9 px-3 text-sm"
+                onClick={() => navigate('/billing')}
+              >
+                Back to Billing
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Invoice summary */}
         <div className="pm-card p-5 space-y-4">
@@ -79,18 +199,28 @@ export default function PaymentPage() {
                 {bill?.createdAt && new Date(bill.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
               </span>
             </div>
-            {bill?.items?.map((item, i) => (
+            {lineItems.map((item, i) => (
               <div key={i} className="flex justify-between text-sm">
                 <span className="text-muted-foreground truncate mr-2">{item.description}</span>
                 <span className="text-foreground font-medium flex-shrink-0">
-                  {item.amount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  LKR {formatMoney(item.totalPrice)}
                 </span>
               </div>
             ))}
+            <div className="pt-1 border-t border-border/60 flex justify-between text-sm">
+              <span className="text-muted-foreground">Paid So Far</span>
+              <span className="text-foreground">LKR {formatMoney(paidTotal)}</span>
+            </div>
             <div className="pt-2 border-t border-border flex justify-between text-base font-semibold">
               <span className="text-foreground">Total</span>
               <span className="text-foreground">
-                LKR {bill?.netAmount?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                LKR {formatMoney(netAmount)}
+              </span>
+            </div>
+            <div className="flex justify-between text-base font-semibold">
+              <span className="text-foreground">Balance Due</span>
+              <span className="text-primary">
+                LKR {formatMoney(balanceDue)}
               </span>
             </div>
           </div>
@@ -99,7 +229,17 @@ export default function PaymentPage() {
         {/* Payment form */}
         <div className="pm-card p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">Payment Details</h3>
-          <form onSubmit={handleSubmit((d) => payMutation.mutate(d))} className="space-y-4">
+          <form
+            onSubmit={handleSubmit((d) => {
+              if (!isBillPayable) {
+                toast.error('This invoice is not payable in its current status')
+                return
+              }
+              const amountToPay = Math.min(roundMoney(d.amount), balanceDue)
+              payMutation.mutate({ ...d, amount: amountToPay })
+            })}
+            className="space-y-4"
+          >
             {/* Payment method selector */}
             <div>
               <label className="form-label">Payment Method</label>
@@ -130,10 +270,12 @@ export default function PaymentPage() {
                 step="0.01"
                 className={`form-input mt-1 ${errors.amount ? 'border-destructive' : ''}`}
                 {...register('amount', { required: true, min: 0.01 })}
+                readOnly
               />
+              <p className="text-xs text-muted-foreground mt-1">Auto-calculated from doctor fee + channeling fee + medicines.</p>
             </div>
 
-            {(selectedMethod === 'CARD' || selectedMethod === 'MOBILE') && (
+            {(selectedMethod === 'CARD' || selectedMethod === 'BANK_TRANSFER') && (
               <div>
                 <label className="form-label">Reference #</label>
                 <input className="form-input mt-1" placeholder="Transaction or ref number" {...register('paymentReference')} />
@@ -161,7 +303,7 @@ export default function PaymentPage() {
               <button
                 type="submit"
                 className="btn-primary flex-1 h-10 text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
-                disabled={bill?.status === 'PAID' || payMutation.isPending}
+                disabled={!isBillPayable || payMutation.isPending || balanceDue <= 0}
               >
                 <CreditCard size={14} />
                 {payMutation.isPending ? 'Processing' : 'Confirm Payment'}

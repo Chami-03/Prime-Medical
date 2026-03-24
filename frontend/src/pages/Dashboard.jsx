@@ -4,18 +4,22 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Calendar, Users, CreditCard, Activity, Pill, Box,
   ChevronRight, UserPlus, TrendingUp, TrendingDown, Minus,
-  Clock, CheckCircle2, AlertTriangle, Stethoscope, HeartPulse,
+  Clock, CheckCircle2, AlertTriangle, Stethoscope, HeartPulse, Droplets,
   Package, ArrowUpRight,
 } from 'lucide-react'
 import {
   LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart,
+  PieChart, Pie, Cell,
 } from 'recharts'
 import { useAuth, RoleProtected } from '../context/AuthContext'
 import { appointmentApi } from '../api/appointmentApi'
 import { queueApi } from '../api/queueApi'
 import { inventoryApi } from '../api/inventoryApi'
+import { prescriptionApi } from '../api/prescriptionApi'
+import { consultationApi } from '../api/consultationApi'
 import Badge from '../components/common/Badge'
+import PrimeAIAssistant from '../components/common/PrimeAIAssistant'
 
 /*  helpers  */
 function unwrapList(payload) {
@@ -27,7 +31,14 @@ function unwrapList(payload) {
 function toDateKey(value) {
   if (!value) return ''
   const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-CA')
+  return Number.isNaN(d.getTime()) ? '' : toLocalIsoDate(d)
+}
+
+function toLocalIsoDate(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function toMonthKey(value) {
@@ -39,13 +50,38 @@ function toMonthKey(value) {
 function getDateRange(daysBack = 6) {
   const end   = new Date()
   const start = new Date(); start.setDate(end.getDate() - daysBack)
-  return { start: start.toLocaleDateString('en-CA'), end: end.toLocaleDateString('en-CA') }
+  return { start: toLocalIsoDate(start), end: toLocalIsoDate(end) }
 }
 
 function getMonthRange(monthsBack = 5) {
   const end   = new Date()
   const start = new Date(end.getFullYear(), end.getMonth() - monthsBack, 1)
-  return { start: start.toLocaleDateString('en-CA'), end: end.toLocaleDateString('en-CA') }
+  return { start: toLocalIsoDate(start), end: toLocalIsoDate(end) }
+}
+
+function getFutureDate(offsetDays = 30) {
+  const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
+  return toLocalIsoDate(d)
+}
+
+function getDatesBetween(startDate, endDate) {
+  const dates = []
+  const current = new Date(`${startDate}T00:00:00`)
+  const end = new Date(`${endDate}T00:00:00`)
+
+  while (current <= end) {
+    dates.push(toLocalIsoDate(current))
+    current.setDate(current.getDate() + 1)
+  }
+
+  return dates
+}
+
+async function getDoctorAppointmentsInRange(doctorId, startDate, endDate) {
+  const days = getDatesBetween(startDate, endDate)
+  const responses = await Promise.all(days.map((date) => appointmentApi.getCalendar(doctorId, date)))
+  return responses.flatMap((payload) => unwrapList(payload))
 }
 
 function countByStatus(list, statuses) {
@@ -142,10 +178,107 @@ function QueueRow({ entry }) {
   )
 }
 
+function HealthMixCard({ appointments = [] }) {
+  const confirmed = countByStatus(appointments, ['CONFIRMED'])
+  const pending = countByStatus(appointments, ['PENDING', 'REQUESTED'])
+  const completed = countByStatus(appointments, ['COMPLETED'])
+  const data = [
+    { name: 'Confirmed', value: confirmed || 0, color: '#2563eb' },
+    { name: 'Pending', value: pending || 0, color: '#fde047' },
+    { name: 'Completed', value: completed || 0, color: '#bfdbfe' },
+  ]
+  const total = data.reduce((sum, item) => sum + item.value, 0)
+
+  return (
+    <div className="pm-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-foreground">Patients Summary</p>
+        <span className="text-[11px] text-muted-foreground">Today</span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="h-[180px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                innerRadius={45}
+                outerRadius={70}
+                paddingAngle={2}
+                dataKey="value"
+                stroke="transparent"
+              >
+                {data.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="space-y-2 self-center">
+          {data.map((item) => (
+            <div key={item.name} className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.name}
+              </div>
+              <span className="font-semibold text-foreground">{item.value}</span>
+            </div>
+          ))}
+          <div className="pt-2 text-[11px] text-muted-foreground border-t border-border">
+            Total visits: <span className="font-semibold text-foreground">{total}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NextPatientCard({ entry }) {
+  return (
+    <div className="pm-card p-5">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-foreground">Next Patient Details</p>
+        <span className="badge-blue">Queue</span>
+      </div>
+      {entry ? (
+        <>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+              {(entry?.patientName || 'P').charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{entry?.patientName || 'Patient'}</p>
+              <p className="text-xs text-muted-foreground">Queue #{entry?.queueNumber || '-'}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-4 text-xs">
+            <div className="rounded-lg bg-muted/55 px-2.5 py-2">
+              <p className="text-muted-foreground">Priority</p>
+              <p className="font-semibold text-foreground mt-0.5">{entry?.priority || 'NORMAL'}</p>
+            </div>
+            <div className="rounded-lg bg-muted/55 px-2.5 py-2">
+              <p className="text-muted-foreground">Status</p>
+              <p className="font-semibold text-foreground mt-0.5">{entry?.status || '-'}</p>
+            </div>
+          </div>
+          <Link to="/queue" className="btn-outline btn-sm mt-4 inline-flex w-full justify-center">
+            Open Queue
+          </Link>
+        </>
+      ) : (
+        <div className="text-center py-6 text-sm text-muted-foreground">No patient in queue now</div>
+      )}
+    </div>
+  )
+}
+
 /* 
    MAIN DASHBOARD
  */
 export default function Dashboard() {
+  const DASHBOARD_REFRESH_MS = 3000
+  const DASHBOARD_SLOW_REFRESH_MS = 10000
+
   const { user, hasRole } = useAuth()
 
   const role       = ['ADMIN', 'DOCTOR', 'RECEPTIONIST', 'PHARMACIST', 'PATIENT', 'NURSE'].find(r => hasRole(r))
@@ -156,7 +289,8 @@ export default function Dashboard() {
   const showQueue  = isDoctor || hasRole('NURSE') || hasRole('RECEPTIONIST')
   const doctorId   = user?.id
 
-  const todayDate  = new Date().toLocaleDateString('en-CA')
+  const todayDate  = toLocalIsoDate(new Date())
+  const upcomingEndDate = getFutureDate(60)
   const weekRange  = getDateRange(6)
   const monthRange = getMonthRange(5)
 
@@ -169,39 +303,107 @@ export default function Dashboard() {
         ...(isDoctor && doctorId ? { doctorId } : {}),
       })
     },
-    refetchInterval: 10000,
+    enabled: !isDoctor || !!doctorId,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
   })
 
   const { data: weekAppointmentsRes } = useQuery({
     queryKey: ['dashboard-appointments-week', role, doctorId, weekRange.start, weekRange.end],
-    queryFn: () => appointmentApi.getAll({ startDate: weekRange.start, endDate: weekRange.end,
-      ...(isDoctor && doctorId ? { doctorId } : {}),
-    }),
-    enabled: showCharts,
-    refetchInterval: 10000,
+    queryFn: () => {
+      if (isDoctor && doctorId) {
+        return getDoctorAppointmentsInRange(doctorId, weekRange.start, weekRange.end)
+      }
+      return appointmentApi.getAll({ startDate: weekRange.start, endDate: weekRange.end })
+    },
+    enabled: showCharts && (!isDoctor || !!doctorId),
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
+  })
+
+  const { data: patientUpcomingRes } = useQuery({
+    queryKey: ['dashboard-patient-upcoming', todayDate, upcomingEndDate],
+    queryFn: () => appointmentApi.getMyUpcoming(todayDate, upcomingEndDate),
+    enabled: isPatient,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
   })
 
   const { data: monthAppointmentsRes } = useQuery({
     queryKey: ['dashboard-appointments-months', role, doctorId, monthRange.start, monthRange.end],
-    queryFn: () => appointmentApi.getAll({ startDate: monthRange.start, endDate: monthRange.end,
-      ...(isDoctor && doctorId ? { doctorId } : {}),
-    }),
-    enabled: showCharts,
-    refetchInterval: 10000,
+    queryFn: () => {
+      if (isDoctor && doctorId) {
+        return getDoctorAppointmentsInRange(doctorId, monthRange.start, monthRange.end)
+      }
+      return appointmentApi.getAll({ startDate: monthRange.start, endDate: monthRange.end })
+    },
+    enabled: showCharts && (!isDoctor || !!doctorId),
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
   })
 
   const { data: queueRes } = useQuery({
     queryKey: ['dashboard-today-queue'],
     queryFn:  () => queueApi.getToday(),
     enabled:  showQueue || isNurse,
-    refetchInterval: 10000,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
   })
 
   const { data: lowStockRes } = useQuery({
     queryKey: ['dashboard-low-stock'],
     queryFn:  () => inventoryApi.getLowStock(),
     enabled:  hasRole('PHARMACIST') || hasRole('ADMIN'),
-    refetchInterval: 20000,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_SLOW_REFRESH_MS,
+    refetchIntervalInBackground: true,
+  })
+
+  const { data: pendingPrescriptionsRes } = useQuery({
+    queryKey: ['dashboard-pharmacy-pending-prescriptions'],
+    queryFn: () => prescriptionApi.getPending(),
+    enabled: hasRole('PHARMACIST') || hasRole('ADMIN') || hasRole('DOCTOR'),
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: DASHBOARD_REFRESH_MS,
+    refetchIntervalInBackground: true,
+  })
+
+  const { data: pendingBloodCheckupsRes } = useQuery({
+    queryKey: ['dashboard-pending-blood-checkups'],
+    queryFn: () => consultationApi.getPendingBloodCheckups(),
+    enabled: isNurse,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true,
   })
 
   const todayAppointments  = unwrapList(todayAppointmentsRes)
@@ -209,15 +411,20 @@ export default function Dashboard() {
   const monthAppointments  = unwrapList(monthAppointmentsRes)
   const queueEntries       = unwrapList(queueRes)
   const lowStockItems      = unwrapList(lowStockRes)
+  const pendingPrescriptions = unwrapList(pendingPrescriptionsRes)
+  const pendingBloodCheckups = Array.isArray(pendingBloodCheckupsRes?.data)
+    ? pendingBloodCheckupsRes.data
+    : unwrapList(pendingBloodCheckupsRes)
 
   const waitingCount        = queueEntries.filter(e => ['WAITING', 'VITALS_PENDING', 'READY'].includes(e?.status)).length
   const inConsultationCount = queueEntries.filter(e => e?.status === 'IN_CONSULTATION').length
   const completedQueueCount = queueEntries.filter(e => e?.status === 'COMPLETED').length
 
-  const patientUpcoming = todayAppointments
+  const patientUpcomingSource = isPatient ? unwrapList(patientUpcomingRes) : todayAppointments
+  const patientUpcoming = patientUpcomingSource
     .filter(a => ['SCHEDULED', 'CONFIRMED'].includes(a?.status) &&
       new Date(a?.appointmentTime || a?.slotTime || 0) >= new Date())
-    .sort((a, b) => new Date(a?.appointmentTime || 0) - new Date(b?.appointmentTime || 0))
+    .sort((a, b) => new Date(a?.appointmentTime || a?.slotTime || 0) - new Date(b?.appointmentTime || b?.slotTime || 0))
   const nextAppointment = patientUpcoming[0] || null
 
   /*  Stats per role  */
@@ -263,8 +470,8 @@ export default function Dashboard() {
     }
     if (role === 'PHARMACIST') {
       return [
-        { label: 'Active Prescriptions', value: totalToday,     icon: Pill,         trend: deriveTrend(totalToday, totalYesterday), change: formatChange(totalToday, totalYesterday), accent: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400', accentBg: 'stat-card-blue' },
-        { label: 'Pending Dispense',      value: confirmedToday, icon: Package,       trend: deriveTrend(confirmedToday, confirmedYest), change: formatChange(confirmedToday, confirmedYest), accent: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400', accentBg: 'stat-card-green' },
+        { label: 'Active Prescriptions', value: pendingPrescriptions.length, icon: Pill, trend: 'same', change: 'Live', accent: 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400', accentBg: 'stat-card-blue' },
+        { label: 'Pending Dispense',      value: pendingPrescriptions.length, icon: Package, trend: 'same', change: 'Live', accent: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400', accentBg: 'stat-card-green' },
         { label: 'Low Stock Alerts',      value: lowStockItems.length, icon: AlertTriangle, trend: 'same', change: 'Live', accent: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400', accentBg: 'stat-card-red' },
         { label: 'Dispensed Today',       value: completedQueueCount, icon: CheckCircle2, trend: 'same', change: 'Live', accent: 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400', accentBg: 'stat-card-amber' },
       ]
@@ -284,7 +491,7 @@ export default function Dashboard() {
       { label: 'Confirmed',             value: confirmedToday,       icon: CheckCircle2, trend: 'same', change: '--', accent: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400', accentBg: 'stat-card-green' },
       { label: 'Pending',               value: pendingToday,         icon: Activity,     trend: 'same', change: '--', accent: 'bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400', accentBg: 'stat-card-purple' },
     ]
-  }, [role, todayAppointments, weekAppointments, waitingCount, inConsultationCount, completedQueueCount, lowStockItems.length, patientUpcoming.length, queueEntries.length])
+  }, [role, todayAppointments, weekAppointments, waitingCount, inConsultationCount, completedQueueCount, lowStockItems.length, patientUpcoming.length, queueEntries.length, pendingPrescriptions.length])
 
   /*  Chart data  */
   const appointmentTrend = useMemo(() => {
@@ -321,6 +528,7 @@ export default function Dashboard() {
   }, [monthAppointments])
 
   const recentQueue = queueEntries.slice(0, 6)
+  const nextQueuePatient = queueEntries.find((e) => ['WAITING', 'READY', 'VITALS_PENDING'].includes(e?.status)) || queueEntries[0]
 
   /*  Greeting  */
   const firstName = user?.firstName || user?.fullName?.split(' ')[0] || 'there'
@@ -364,6 +572,15 @@ export default function Dashboard() {
       {/*  KPI Stats  */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((s, i) => <StatCard key={i} {...s} />)}
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        <div className="xl:col-span-2">
+          <HealthMixCard appointments={todayAppointments} />
+        </div>
+        <div className="xl:col-span-3">
+          <NextPatientCard entry={nextQueuePatient} />
+        </div>
       </div>
 
       {/*  Charts strip (Doctor / Receptionist / Admin)  */}
@@ -457,6 +674,52 @@ export default function Dashboard() {
           </div>
         )}
 
+        {(hasRole('PHARMACIST') || hasRole('ADMIN')) && (
+          <div className="pm-card lg:col-span-2">
+            <div className="pm-card-section flex items-center justify-between py-4">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Pending Prescriptions</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="status-dot-live" />
+                  <span className="text-xs text-muted-foreground">
+                    Live updates every 3 seconds
+                  </span>
+                </div>
+              </div>
+              <Link to="/inventory" className="btn-ghost btn-sm flex items-center gap-1 text-primary">
+                Pharmacy <ChevronRight size={13} />
+              </Link>
+            </div>
+
+            <div className="p-3 space-y-1">
+              {pendingPrescriptions.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  No pending prescriptions
+                </div>
+              ) : (
+                pendingPrescriptions.slice(0, 6).map((rx) => (
+                  <Link
+                    key={rx.id}
+                    to={`/dispense/${rx.id}`}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
+                      <Pill size={13} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{rx.patientName || 'Patient'}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        Dr. {rx.doctorName || '-'} · {rx.prescribedAt ? new Date(rx.prescribedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </p>
+                    </div>
+                    <Badge status={rx.status} />
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Patient: next appointment */}
         {isPatient && (
           <div className="pm-card lg:col-span-2 p-5">
@@ -464,14 +727,14 @@ export default function Dashboard() {
             {nextAppointment ? (
               <div className="flex items-center gap-4 p-4 rounded-xl bg-primary/5 border border-primary/15">
                 <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex flex-col items-center justify-center font-bold leading-tight shrink-0">
-                  <span className="text-xl">{new Date(nextAppointment.appointmentTime).getDate()}</span>
-                  <span className="text-[9px] uppercase">{new Date(nextAppointment.appointmentTime).toLocaleDateString('en-US', { month: 'short' })}</span>
+                  <span className="text-xl">{new Date(nextAppointment.appointmentTime || nextAppointment.slotTime).getDate()}</span>
+                  <span className="text-[9px] uppercase">{new Date(nextAppointment.appointmentTime || nextAppointment.slotTime).toLocaleDateString('en-US', { month: 'short' })}</span>
                 </div>
                 <div>
                   <p className="font-semibold text-foreground">Dr. {nextAppointment.doctorName || '-'}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {nextAppointment.visitType || 'General Visit'} &bull;{' '}
-                    {new Date(nextAppointment.appointmentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(nextAppointment.appointmentTime || nextAppointment.slotTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </p>
                   <span className="badge-blue mt-2 inline-block">{nextAppointment.status}</span>
                 </div>
@@ -488,22 +751,66 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Quick Actions panel */}
-        <div className="pm-card p-4">
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider px-1 mb-2">
-            Quick Actions
-          </p>
-          <div className="space-y-0.5">
-            {quickActions.map(a => (
-              <QuickAction key={a.to} {...a} />
-            ))}
-          </div>
-          <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
-            <span className="status-dot-live" />
-            <span className="text-[11px] text-muted-foreground">All systems operational</span>
+        {/* Right rail */}
+        <div className="space-y-4">
+          {isNurse && (
+            <div className="pm-card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider px-1">
+                  Blood Tests
+                </p>
+                <span className="badge-amber">{pendingBloodCheckups.length} pending</span>
+              </div>
+
+              {pendingBloodCheckups.length === 0 ? (
+                <div className="px-1 py-5 text-center text-sm text-muted-foreground">
+                  No pending blood test requests
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {pendingBloodCheckups.slice(0, 4).map((item) => (
+                    <Link
+                      key={item.id}
+                      to={`/consultation/${item.id}`}
+                      className="flex items-start gap-2.5 rounded-xl border border-border/70 px-3 py-2 hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400 flex items-center justify-center shrink-0">
+                        <Droplets size={13} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-foreground truncate">{item.patientName || 'Patient'}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          Dr. {item.doctorName || '-'}
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
+                  <Link to="/queue" className="btn-outline btn-sm w-full justify-center mt-1">
+                    Open Queue For Blood Tests
+                  </Link>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="pm-card p-4">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider px-1 mb-2">
+              Quick Actions
+            </p>
+            <div className="space-y-0.5">
+              {quickActions.map(a => (
+                <QuickAction key={a.to} {...a} />
+              ))}
+            </div>
+            <div className="mt-4 pt-3 border-t border-border flex items-center gap-2">
+              <span className="status-dot-live" />
+              <span className="text-[11px] text-muted-foreground">All systems operational</span>
+            </div>
           </div>
         </div>
       </div>
+
+      <PrimeAIAssistant />
     </div>
   )
 }

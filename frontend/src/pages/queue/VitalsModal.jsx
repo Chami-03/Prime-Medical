@@ -20,6 +20,7 @@ export default function VitalsModal({ isOpen, onClose, queueEntry }) {
     handleSubmit,
     reset,
     watch,
+    getValues,
     formState: { errors },
   } = useForm()
   const queryClient = useQueryClient()
@@ -93,6 +94,13 @@ export default function VitalsModal({ isOpen, onClose, queueEntry }) {
                   valueAsNumber: true,
                   min: { value: 70, message: 'Minimum is 70' },
                   max: { value: 250, message: 'Maximum is 250' },
+                  validate: (value) => {
+                    const diastolic = Number(getValues('bloodPressureDiastolic'))
+                    if (Number.isFinite(diastolic) && value <= diastolic) {
+                      return 'Systolic should be greater than diastolic'
+                    }
+                    return true
+                  },
                 })}
               />
               {errors.bloodPressureSystolic && <p className="mt-1 text-xs text-destructive">{errors.bloodPressureSystolic.message}</p>}
@@ -107,6 +115,13 @@ export default function VitalsModal({ isOpen, onClose, queueEntry }) {
                   valueAsNumber: true,
                   min: { value: 40, message: 'Minimum is 40' },
                   max: { value: 150, message: 'Maximum is 150' },
+                  validate: (value) => {
+                    const systolic = Number(getValues('bloodPressureSystolic'))
+                    if (Number.isFinite(systolic) && value >= systolic) {
+                      return 'Diastolic should be less than systolic'
+                    }
+                    return true
+                  },
                 })}
               />
               {errors.bloodPressureDiastolic && <p className="mt-1 text-xs text-destructive">{errors.bloodPressureDiastolic.message}</p>}
@@ -202,7 +217,17 @@ export default function VitalsModal({ isOpen, onClose, queueEntry }) {
             </VField>
           </div>
           <VField label="Pain Scale (0–10)">
-            <input type="range" min="0" max="10" className="w-full accent-primary mt-2" {...register('painScale')} />
+              <input
+                type="range"
+                min="0"
+                max="10"
+                className="w-full accent-primary mt-2"
+                {...register('painScale', {
+                  setValueAs: (v) => (v === '' ? 0 : Number(v)),
+                  min: { value: 0, message: 'Minimum is 0' },
+                  max: { value: 10, message: 'Maximum is 10' },
+                })}
+              />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span>0 None</span><span>5 Moderate</span><span>10 Severe</span>
             </div>

@@ -9,12 +9,12 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
+        <version>3.5.11</version>
         <relativePath/>
     </parent>
 
     <!-- ── Project Coordinates ────────────────────────────────── -->
-    <groupId>com.medcenter</groupId>
+    <groupId>com.primemedical</groupId>
     <artifactId>primemedical-backend</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <name>PrimeMedical Backend</name>
@@ -24,7 +24,7 @@
     <properties>
         <java.version>17</java.version>
         <jjwt.version>0.11.5</jjwt.version>
-        <springdoc.version>2.3.0</springdoc.version>
+        <springdoc.version>2.8.9</springdoc.version>
         <lombok.version>1.18.38</lombok.version>
     </properties>
 

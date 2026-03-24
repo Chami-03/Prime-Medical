@@ -96,8 +96,26 @@ export function AuthProvider({ children }) {
         [hasRole]
     )
 
+    const syncUserProfile = useCallback((profile) => {
+        const existing = user || {}
+        const nextUser = normalizeUser({
+            ...existing,
+            ...profile,
+            userId: profile?.id ?? existing.userId ?? existing.id,
+            id: profile?.id ?? existing.id,
+            fullName:
+                profile?.fullName
+                    || [profile?.firstName, profile?.lastName].filter(Boolean).join(' ').trim()
+                    || existing.fullName,
+            roles: profile?.roles || existing.roles,
+        })
+        sessionStorage.setItem('user', JSON.stringify(nextUser))
+        setUser(nextUser)
+        return nextUser
+    }, [user])
+
     return (
-        <AuthContext.Provider value={{ user, login, logout, hasRole, hasAnyRole }}>
+        <AuthContext.Provider value={{ user, login, logout, hasRole, hasAnyRole, syncUserProfile }}>
             {children}
         </AuthContext.Provider>
     )

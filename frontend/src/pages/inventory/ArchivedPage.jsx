@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { inventoryApi } from '../../api/inventoryApi'
 import { Archive } from 'lucide-react'
@@ -10,6 +11,29 @@ export default function ArchivedPage() {
 
   const items = Array.isArray(res) ? res : res?.data || []
 
+  const uniqueItems = useMemo(() => {
+    const map = new Map()
+
+    items.forEach((item) => {
+      const key = String(item?.drugName || item?.id || '').trim().toLowerCase()
+      if (!key) return
+
+      const existing = map.get(key)
+      if (!existing) {
+        map.set(key, item)
+        return
+      }
+
+      const existingTime = existing?.archivedAt ? new Date(existing.archivedAt).getTime() : 0
+      const itemTime = item?.archivedAt ? new Date(item.archivedAt).getTime() : 0
+      if (itemTime >= existingTime) {
+        map.set(key, item)
+      }
+    })
+
+    return Array.from(map.values())
+  }, [items])
+
   return (
     <div className="space-y-5">
       <h2 className="text-xl font-semibold text-foreground">Archived Items</h2>
@@ -19,7 +43,7 @@ export default function ArchivedPage() {
           <div className="flex items-center justify-center py-16">
             <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
           </div>
-        ) : items.length === 0 ? (
+        ) : uniqueItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
             <Archive size={32} className="text-muted-foreground/30 mb-2" />
             <p className="text-sm text-muted-foreground">No archived items</p>
@@ -35,7 +59,7 @@ export default function ArchivedPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map(item => (
+              {uniqueItems.map(item => (
                 <tr key={item.id}>
                   <td className="font-medium text-foreground">{item.drugName}</td>
                   <td><span className="badge-gray text-xs">{item.category || '—'}</span></td>

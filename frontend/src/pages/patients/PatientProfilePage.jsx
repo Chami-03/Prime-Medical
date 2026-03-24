@@ -5,17 +5,31 @@ import { useForm } from 'react-hook-form'
 import { toast } from 'react-hot-toast'
 import {
   Calendar, User, Phone, Mail, MapPin, AlertTriangle,
-  Printer, Plus, Clock, FileText, Activity, X
+  Printer, Plus, Clock, FileText, Activity, X, Trash2, Receipt, CreditCard
 } from 'lucide-react'
 import { patientApi } from '../../api/patientApi'
 import { consultationApi } from '../../api/consultationApi'
+import { billingApi } from '../../api/billingApi'
+import { useAuth } from '../../context/AuthContext'
 import { RoleProtected } from '../../context/AuthContext'
 import Badge from '../../components/common/Badge'
 import Modal from '../../components/common/Modal'
+import { getLatestPayment, printBillReceipt } from '../../utils/receiptPrinter'
+
+const extractBills = (payload) => {
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.data?.data)) return payload.data.data
+  if (Array.isArray(payload)) return payload
+  return []
+}
+
+const getBillId = (bill) => bill?.id ?? bill?.billId ?? null
+const isPayableStatus = (status) => status !== 'PAID' && status !== 'REFUNDED'
 
 export default function PatientProfilePage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { logout } = useAuth()
   const queryClient = useQueryClient()
   const [allergyModal, setAllergyModal] = useState(false)
 
@@ -27,6 +41,12 @@ export default function PatientProfilePage() {
   const { data: historyRes, isLoading: isLoadingHistory } = useQuery({
     queryKey: ['patient-history', id],
     queryFn: () => consultationApi.getPatientHistory(id),
+  })
+
+  const { data: billsRes, isLoading: isLoadingBills } = useQuery({
+    queryKey: ['patient-bills-profile', id],
+    queryFn: () => billingApi.getByPatient(id),
+    enabled: !!id,
   })
 
   const {
@@ -49,13 +69,53 @@ export default function PatientProfilePage() {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (patientId) => patientApi.delete(patientId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patients'] })
+      toast.success('Patient deleted permanently')
+      navigate('/patients')
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || 'Failed to delete patient')
+    },
+  })
+
+  const deleteMyAccountMutation = useMutation({
+    mutationFn: () => patientApi.deleteMyAccount(),
+    onSuccess: () => {
+      toast.success('Your account has been deleted permanently')
+      logout()
+    },
+    onError: (err) => {
+      toast.error(err?.response?.data?.message || 'Failed to delete your account')
+    },
+  })
+
+  const handleDeletePatient = () => {
+    const ok = window.confirm(`Delete patient ${patient?.firstName || ''} ${patient?.lastName || ''} permanently? This cannot be undone.`)
+    if (!ok) return
+    deleteMutation.mutate(id)
+  }
+
+  const handleDeleteMyAccount = () => {
+    const ok = window.confirm('Are you sure you want to delete your account permanently? This action cannot be undone and will sign you out.')
+    if (!ok) return
+    deleteMyAccountMutation.mutate()
+  }
+
   if (isLoading) return (
     <div className="flex items-center justify-center py-20">
       <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
     </div>
   )
 
-  const patient = patientRes
+  const patient = patientRes?.data || patientRes || null
+
+  const patientFirstName = patient?.firstName || ''
+  const patientLastName = patient?.lastName || ''
+  const patientDisplayName = `${patientFirstName} ${patientLastName}`.trim() || 'Unnamed Patient'
+  const patientInitials = `${patientFirstName?.[0] || ''}${patientLastName?.[0] || ''}`.trim() || 'P'
 
   if (!patient) return (
     <div className="pm-card flex flex-col items-center justify-center py-16 text-center">
@@ -68,6 +128,14 @@ export default function PatientProfilePage() {
   )
 
   const history = Array.isArray(historyRes) ? historyRes : historyRes?.data || []
+  const bills = extractBills(billsRes)
+
+  const handlePrintReceipt = (bill) => {
+    const result = printBillReceipt(bill, getLatestPayment(bill))
+    if (!result.ok) {
+      toast.error(result.reason || 'Unable to print receipt')
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -76,11 +144,11 @@ export default function PatientProfilePage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xl font-semibold uppercase flex-shrink-0">
-              {patient.firstName?.[0]}{patient.lastName?.[0]}
+              {patientInitials}
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">
-                {patient.firstName} {patient.lastName}
+                {patientDisplayName}
               </h2>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -101,7 +169,14 @@ export default function PatientProfilePage() {
             <RoleProtected allowedRoles={['DOCTOR', 'RECEPTIONIST']}>
               <button
                 className="btn-primary h-9 px-3 text-sm flex items-center gap-1.5"
-                onClick={() => navigate('/appointments/book', { state: { patient } })}
+                onClick={() =>
+                  navigate('/appointments/book', {
+                    state: {
+                      patient: patient?.data || patient,
+                      patientId: Number(id),
+                    },
+                  })
+                }
               >
                 <Calendar size={14} />
                 Book Appointment
@@ -114,6 +189,26 @@ export default function PatientProfilePage() {
               <Printer size={14} />
               Print
             </button>
+            <RoleProtected allowedRoles={['RECEPTIONIST', 'ADMIN']}>
+              <button
+                className="btn-danger h-9 px-3 text-sm flex items-center gap-1.5 disabled:opacity-50"
+                onClick={handleDeletePatient}
+                disabled={deleteMutation.isPending}
+              >
+                <Trash2 size={14} />
+                {deleteMutation.isPending ? 'Deleting' : 'Delete Patient'}
+              </button>
+            </RoleProtected>
+            <RoleProtected allowedRoles={['PATIENT']}>
+              <button
+                className="btn-danger h-9 px-3 text-sm flex items-center gap-1.5 disabled:opacity-50"
+                onClick={handleDeleteMyAccount}
+                disabled={deleteMyAccountMutation.isPending}
+              >
+                <Trash2 size={14} />
+                {deleteMyAccountMutation.isPending ? 'Deleting' : 'Delete My Account'}
+              </button>
+            </RoleProtected>
           </div>
         </div>
       </div>
@@ -188,7 +283,104 @@ export default function PatientProfilePage() {
         </div>
 
         {/* Right: history */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-4">
+          <div className="pm-card overflow-hidden">
+            <div className="p-4 border-b border-border flex items-center gap-2">
+              <Receipt size={15} className="text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">Billing & Receipts</h3>
+              <span className="ml-auto text-xs text-muted-foreground">{bills.length} invoices</span>
+            </div>
+
+            {isLoadingBills ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-6 h-6 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+              </div>
+            ) : bills.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16">
+                <Receipt size={28} className="text-muted-foreground/30 mb-2" />
+                <p className="text-sm text-muted-foreground">No billing records yet</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="pm-table table-fixed">
+                  <colgroup>
+                    <col className="w-[28%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[18%]" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Invoice #</th>
+                      <th>Date</th>
+                      <th className="!text-right">Amount (LKR)</th>
+                      <th className="!text-center">Status</th>
+                      <th className="!text-center">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bills.map((bill, index) => {
+                      const latestPayment = getLatestPayment(bill)
+                      const billId = Number(getBillId(bill))
+                      const canNavigateToPayment = Number.isInteger(billId) && billId > 0
+                      return (
+                        <tr key={getBillId(bill) || bill.invoiceNumber || index}>
+                          <td className="font-mono text-xs truncate">{bill.invoiceNumber}</td>
+                          <td className="text-muted-foreground">
+                            {new Date(bill.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td className="text-right font-semibold">
+                            {Number(bill.netAmount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="text-center">
+                            <Badge status={bill.status} />
+                          </td>
+                          <td>
+                            <div className="flex items-center justify-center gap-2">
+                              {latestPayment ? (
+                                <button
+                                  type="button"
+                                  className="btn-secondary h-8 px-3 text-xs flex items-center gap-1"
+                                  onClick={() => handlePrintReceipt(bill)}
+                                >
+                                  <Receipt size={12} />
+                                  Receipt
+                                </button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No payment</span>
+                              )}
+
+                              {isPayableStatus(bill?.status) && (
+                                <RoleProtected allowedRoles={['DOCTOR', 'RECEPTIONIST']}>
+                                  <button
+                                    type="button"
+                                    className="btn-primary h-8 px-3 text-xs flex items-center gap-1"
+                                    disabled={!canNavigateToPayment}
+                                    onClick={() => {
+                                      if (!canNavigateToPayment) {
+                                        toast.error('Unable to open payment page for this invoice')
+                                        return
+                                      }
+                                      navigate(`/billing/${billId}/payment`)
+                                    }}
+                                  >
+                                    <CreditCard size={12} />
+                                    Pay
+                                  </button>
+                                </RoleProtected>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="pm-card overflow-hidden">
             <div className="p-4 border-b border-border flex items-center gap-2">
               <FileText size={15} className="text-muted-foreground" />

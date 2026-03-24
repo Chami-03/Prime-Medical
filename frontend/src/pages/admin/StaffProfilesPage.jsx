@@ -101,12 +101,31 @@ export default function StaffProfilesPage() {
     setIsDeactivateModalOpen(true)
   }
 
-  const profiles = staffRes?.data || []
-  const activeCount = profiles.filter(p => p.isActive).length
-  const filteredProfiles = profiles.filter(p =>
-    `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.role && p.role.toLowerCase().includes(searchQuery.toLowerCase()))
+  const profilesRaw = staffRes?.data || []
+  const profiles = Array.from(
+    new Map(profilesRaw.filter((p) => p?.userId != null).map((p) => [p.userId, p])).values()
   )
+  const activeCount = profiles.filter(p => p.isActive).length
+  const isPrimaryDoctor = (item) => {
+    const fullName = `${item?.firstName || ''} ${item?.lastName || ''}`.trim().toLowerCase()
+    return fullName === 'pulasthi senevirathne'
+  }
+
+  const filteredProfiles = profiles
+    .filter(p =>
+      `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.role && p.role.toLowerCase().includes(searchQuery.toLowerCase()))
+    )
+    .sort((a, b) => {
+      const aPrimary = isPrimaryDoctor(a)
+      const bPrimary = isPrimaryDoctor(b)
+      if (aPrimary && !bPrimary) return -1
+      if (!aPrimary && bPrimary) return 1
+
+      const aName = `${a?.firstName || ''} ${a?.lastName || ''}`.trim()
+      const bName = `${b?.firstName || ''} ${b?.lastName || ''}`.trim()
+      return aName.localeCompare(bName)
+    })
 
   return (
     <div className="space-y-5">

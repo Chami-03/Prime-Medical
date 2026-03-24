@@ -31,7 +31,10 @@ export default function DispensePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['prescription', id] })
       queryClient.invalidateQueries({ queryKey: ['inventory'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-all'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-alerts'] })
       queryClient.invalidateQueries({ queryKey: ['inventory-activity'] })
+      queryClient.invalidateQueries({ queryKey: ['inventory-report'] })
       toast.success('Prescription dispensed and inventory updated')
       setAllergyOverrideModal(false)
       setAllergyError(null)
@@ -58,6 +61,9 @@ export default function DispensePage() {
   )
 
   const prescription = prescriptionRes?.data
+  const allItems = Array.isArray(prescription?.items) ? prescription.items : []
+  const dispensableItems = allItems.filter((item) => !!item?.inventoryItemId)
+  const customItems = allItems.filter((item) => !item?.inventoryItemId)
 
   return (
     <div className="space-y-5 pb-10 max-w-5xl mx-auto">
@@ -109,7 +115,7 @@ export default function DispensePage() {
       <div className="pm-card overflow-hidden">
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/30">
           <Pill size={14} className="text-primary" />
-          <span className="text-sm font-semibold text-foreground">Medications to Dispense</span>
+          <span className="text-sm font-semibold text-foreground">Inventory Medicines to Dispense</span>
         </div>
         <table className="pm-table">
           <thead>
@@ -122,7 +128,13 @@ export default function DispensePage() {
             </tr>
           </thead>
           <tbody>
-            {prescription?.items?.map((item, idx) => (
+            {dispensableItems.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="text-center text-sm text-muted-foreground py-6">
+                  No inventory-linked medicines to dispense.
+                </td>
+              </tr>
+            ) : dispensableItems.map((item, idx) => (
               <tr key={idx}>
                 <td>
                   <p className="font-medium text-foreground">{item.drugName}</p>
@@ -138,6 +150,40 @@ export default function DispensePage() {
         </table>
       </div>
 
+      {customItems.length > 0 && (
+        <div className="pm-card overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-amber-500/10">
+            <AlertTriangle size={14} className="text-amber-600" />
+            <span className="text-sm font-semibold text-foreground">Custom Medicines (No Inventory Dispense)</span>
+          </div>
+          <table className="pm-table">
+            <thead>
+              <tr>
+                <th>Medicine</th>
+                <th>Dosage</th>
+                <th>Frequency</th>
+                <th>Duration</th>
+                <th className="text-right">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customItems.map((item, idx) => (
+                <tr key={`custom-${idx}`}>
+                  <td>
+                    <p className="font-medium text-foreground">{item.drugName}</p>
+                    {item.instructions && <p className="text-xs text-muted-foreground italic mt-0.5">{item.instructions}</p>}
+                  </td>
+                  <td><code className="text-xs bg-muted px-2 py-0.5 rounded border border-border">{item.dosage}</code></td>
+                  <td><span className="badge-blue">{item.frequency}</span></td>
+                  <td className="text-muted-foreground text-xs">{item.durationDays} day(s)</td>
+                  <td className="text-right font-bold text-foreground">{item.quantity}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Doctor notes */}
       {prescription?.notes && (
         <div className="pm-card p-4 bg-amber-500/10 border-amber-500/20">
@@ -151,13 +197,15 @@ export default function DispensePage() {
         <div className="flex items-center gap-2 text-sm">
           {prescription?.status === 'DISPENSED' ? (
             <><CheckCircle2 size={16} className="text-emerald-500" /><span className="text-emerald-600 font-medium">Medicine Dispensed</span></>
+          ) : customItems.length > 0 ? (
+            <><AlertTriangle size={16} className="text-amber-500" /><span className="text-muted-foreground">Custom medicines are listed separately and are not dispensed from inventory</span></>
           ) : (
             <><span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /><span className="text-muted-foreground">Ready to dispense</span></>
           )}
         </div>
         <div className="flex gap-3">
           <button className="btn-secondary h-9 px-4 text-sm" onClick={() => navigate(-1)}>Discard</button>
-          {prescription?.status !== 'DISPENSED' && (
+          {prescription?.status !== 'DISPENSED' && dispensableItems.length > 0 && (
             <button className="btn-primary h-9 px-5 text-sm disabled:opacity-40" disabled={dispenseMutation.isPending} onClick={handleDispense}>
               {dispenseMutation.isPending ? 'Dispensing' : 'Dispense Medicine'}
             </button>

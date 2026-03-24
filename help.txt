@@ -1,0 +1,9 @@
+Backend
+cd backend
+mvn clean install   # only first time or after changes
+mvn spring-boot:run
+
+Frontend
+cd frontend
+npm install         # only first time
+npm run dev         # or npm start depending on project

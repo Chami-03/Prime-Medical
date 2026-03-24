@@ -1,10 +1,12 @@
 import { Outlet, useLocation, Link } from 'react-router-dom'
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import Sidebar from './Sidebar'
 import ThemeToggle from '../common/ThemeToggle'
 import GlobalSearch from '../common/GlobalSearch'
 import NotificationCenter from '../common/NotificationCenter'
 import { useAuth } from '../../context/AuthContext'
+import { patientApi } from '../../api/patientApi'
 import { ChevronRight, Menu } from 'lucide-react'
 
 const ROUTE_META = {
@@ -23,6 +25,7 @@ const ROUTE_META = {
   '/staff':                   { title: 'Staff Profiles', parent: 'Dashboard' },
   '/admin/analytics':         { title: 'Analytics & Reports', parent: 'Dashboard' },
   '/settings':                { title: 'System Settings', parent: 'Dashboard' },
+  '/profile':                 { title: 'Profile Settings', parent: 'Dashboard' },
 }
 
 function getPageMeta(pathname) {
@@ -48,6 +51,16 @@ const ROLE_GREETINGS = {
 export default function AppLayout() {
   const { pathname } = useLocation()
   const { user, hasRole } = useAuth()
+  const [avatarLoadError, setAvatarLoadError] = useState(false)
+
+  const patientPathMatch = pathname.match(/^\/patients\/(\d+)$/)
+  const patientIdInPath = patientPathMatch ? Number(patientPathMatch[1]) : null
+
+  const { data: patientHeadingData } = useQuery({
+    queryKey: ['layout-patient-heading', patientIdInPath],
+    queryFn: () => patientApi.getById(patientIdInPath),
+    enabled: !!patientIdInPath,
+  })
 
   // Mobile overlay
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -55,13 +68,28 @@ export default function AppLayout() {
   // Close mobile sidebar on route change
   useEffect(() => { setMobileOpen(false) }, [pathname])
 
-  const meta = getPageMeta(pathname)
+  const metaBase = getPageMeta(pathname)
+  const resolvedPatient = patientHeadingData?.data || patientHeadingData || null
+  const patientHeadingName = resolvedPatient
+    ? `${resolvedPatient.firstName || ''} ${resolvedPatient.lastName || ''}`.trim()
+    : ''
+
+  const meta =
+    patientIdInPath && patientHeadingName
+      ? { ...metaBase, title: patientHeadingName }
+      : metaBase
 
   const primaryRole = ['ADMIN', 'OWNER', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'PHARMACIST', 'PATIENT']
     .find(r => hasRole(r)) || 'PATIENT'
   const roleSubtitle = ROLE_GREETINGS[primaryRole] || 'Prime Medical'
 
   const initials = (user?.fullName || user?.firstName || 'U').charAt(0).toUpperCase()
+  const profilePhotoUrl = (user?.profilePhotoUrl || '').trim()
+  const showProfilePhoto = Boolean(profilePhotoUrl) && !avatarLoadError
+
+  useEffect(() => {
+    setAvatarLoadError(false)
+  }, [profilePhotoUrl])
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
@@ -91,7 +119,7 @@ export default function AppLayout() {
         {/*  Header  */}
         <header
           className="sticky top-0 z-40 flex items-center px-5 gap-4 flex-shrink-0
-                     bg-card/90 backdrop-blur-xl border-b border-border"
+                     bg-card/85 backdrop-blur-xl border-b border-border"
           style={{ height: 'var(--header-height)' }}
         >
           {/* Mobile menu button */}
@@ -121,7 +149,7 @@ export default function AppLayout() {
                   </>
                 )}
               </div>
-              <h1 className="text-sm font-semibold text-foreground truncate sm:text-xs sm:font-normal sm:text-muted-foreground sm:hidden">
+              <h1 className="text-base font-semibold text-foreground truncate sm:text-xs sm:font-normal sm:text-muted-foreground sm:hidden">
                 {meta.title}
               </h1>
             </div>
@@ -146,10 +174,21 @@ export default function AppLayout() {
             {/* User avatar */}
             <div className="flex items-center gap-2.5">
               <div
-                className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center
-                           font-bold text-white text-sm select-none"
+                className={[
+                  'w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white text-sm select-none overflow-hidden',
+                  showProfilePhoto ? 'bg-muted' : 'bg-primary',
+                ].join(' ')}
               >
-                {initials}
+                {showProfilePhoto ? (
+                  <img
+                    src={profilePhotoUrl}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                    onError={() => setAvatarLoadError(true)}
+                  />
+                ) : (
+                  initials
+                )}
               </div>
               <div className="hidden lg:block text-left leading-tight">
                 <p className="text-xs font-semibold text-foreground truncate max-w-[120px]">
@@ -164,8 +203,8 @@ export default function AppLayout() {
         </header>
 
         {/*  Scrollable content  */}
-        <main className="flex-1 overflow-y-auto no-scrollbar bg-background">
-          <div className="max-w-screen-xl mx-auto px-5 py-5">
+        <main className="flex-1 overflow-y-auto no-scrollbar bg-transparent">
+          <div className="max-w-[1320px] mx-auto px-4 py-5 md:px-5 md:py-6">
             <Outlet />
           </div>
         </main>

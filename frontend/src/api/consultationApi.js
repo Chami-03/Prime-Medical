@@ -10,6 +10,9 @@ export const consultationApi = {
     updateNotes: (id, data) =>
         api.put(`/consultations/${id}/notes`, data).then((r) => r.data),
 
+    updateBloodCheckup: (id, data) =>
+        api.put(`/consultations/${id}/blood-checkup`, data).then((r) => r.data),
+
     end: (id) =>
         api.post(`/consultations/${id}/end`).then((r) => r.data),
 
@@ -18,4 +21,10 @@ export const consultationApi = {
 
     getPatientHistory: (patientId) =>
         api.get(`/consultations/patient/${patientId}`).then((r) => r.data),
+
+    getPendingBloodCheckups: () =>
+        api.get('/consultations/blood-checkup/pending').then((r) => r.data),
+
+    getCompletedBloodCheckups: () =>
+        api.get('/consultations/blood-checkup/completed').then((r) => r.data),
 }

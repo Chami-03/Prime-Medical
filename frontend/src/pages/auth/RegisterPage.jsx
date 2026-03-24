@@ -3,10 +3,12 @@ import { useNavigate, Link } from 'react-router-dom'
 import { toast } from 'react-hot-toast'
 import { Mail, Lock, User, Phone, Loader2 } from 'lucide-react'
 import { authApi } from '../../api/authApi'
+import { useAuth } from '../../context/AuthContext'
 import AuthShell from './AuthShell'
 
 export default function RegisterPage() {
     const navigate = useNavigate()
+    const { login } = useAuth()
     const { register, handleSubmit, formState: { errors, isSubmitting }, watch } = useForm()
     const pwd = watch('password')
 
@@ -15,8 +17,14 @@ export default function RegisterPage() {
             const { confirmPassword, ...rest } = data;
             const payload = { ...rest, role: 'PATIENT' }
             await authApi.register(payload)
-            toast.success('Registration successful! You may now login.')
-            navigate('/login')
+            try {
+                await login(data.email, data.password)
+                toast.success('Registration successful! Welcome to your dashboard.')
+                navigate('/dashboard', { replace: true })
+            } catch {
+                toast.success('Registration successful! Please sign in.')
+                navigate('/login', { replace: true })
+            }
         } catch (error) {
             console.error(error)
             toast.error(error?.response?.data?.message || 'Registration failed. Try again.')
