@@ -29,7 +29,7 @@ Notes:
 
 1. Start backend and check startup logs:
 	- `Email notifications enabled with sender:`
-	- `SMS notifications enabled via Twilio.`
+	- `SMS notifications enabled
 2. Trigger a registration and confirm:
 	- Confirmation email received
 	- Confirmation SMS received
