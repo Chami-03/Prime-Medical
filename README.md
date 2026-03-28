@@ -22,7 +22,6 @@ Backend runs at: http://localhost:8080
 Swagger UI: http://localhost:8080/swagger-ui.html
 
 Notes:
-- Set either `TWILIO_FROM_NUMBER` or `TWILIO_MESSAGING_SERVICE_SID` (at least one is required).
 - Gmail accounts should use an App Password for `MAIL_PASSWORD`.
 
 ## Notification Re-Verify
