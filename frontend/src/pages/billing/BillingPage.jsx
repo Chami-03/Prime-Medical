@@ -51,6 +51,10 @@ export default function BillingPage() {
     queryKey: ['patient-bills', selectedPatient?.id],
     queryFn: () => billingApi.getByPatient(selectedPatient.id),
     enabled: !!selectedPatient,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   })
 
   const generateMutation = useMutation({

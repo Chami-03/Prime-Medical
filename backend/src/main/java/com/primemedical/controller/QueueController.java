@@ -5,9 +5,9 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -63,8 +63,9 @@ public class QueueController {
 
     @PutMapping("/{id}/complete")
     @PreAuthorize("hasAnyRole('ADMIN','DOCTOR')")
-    public ResponseEntity<ApiResponse<QueueEntryResponse>> complete(@PathVariable Long id) {
-        QueueEntryResponse response = queueService.complete(id);
+    public ResponseEntity<ApiResponse<QueueEntryResponse>> complete(
+            @PathVariable Long id, Authentication authentication) {
+        QueueEntryResponse response = queueService.complete(id, authentication.getName());
         return ResponseEntity.ok(ApiResponse.success("Queue entry completed", response));
     }
 

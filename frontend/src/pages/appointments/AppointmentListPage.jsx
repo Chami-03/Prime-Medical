@@ -47,6 +47,10 @@ export default function AppointmentListPage() {
   const [checkInAppt, setCheckInAppt] = useState(null)
   const [rescheduleAppt, setRescheduleAppt] = useState(null)
   const [newRescheduleTime, setNewRescheduleTime] = useState('')
+  const [delayAppt, setDelayAppt] = useState(null)
+  const [delayHours, setDelayHours] = useState(0)
+  const [delayMinutes, setDelayMinutes] = useState(0)
+  const [delayReason, setDelayReason] = useState('')
   const [deleteAppt, setDeleteAppt] = useState(null)
   const [selectedDate, setSelectedDate] = useState(initialDate)
 
@@ -71,7 +75,7 @@ export default function AppointmentListPage() {
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: 10000,
+    refetchInterval: 3000,
     refetchIntervalInBackground: true,
   })
 
@@ -185,6 +189,23 @@ export default function AppointmentListPage() {
         queryClient.setQueryData(queryKey, queryData)
       })
       toast.error(err.response?.data?.message || 'Failed to reschedule')
+    },
+  })
+
+  const doctorDelayMutation = useMutation({
+    mutationFn: ({ id, delayMinutesTotal, reason }) =>
+      appointmentApi.notifyDoctorDelay(id, delayMinutesTotal, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      toast.success('Patient notified about doctor delay')
+      setDelayAppt(null)
+      setDelayHours(0)
+      setDelayMinutes(0)
+      setDelayReason('')
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to notify patient about delay')
     },
   })
 
@@ -389,7 +410,7 @@ export default function AppointmentListPage() {
                 <th>Doctor</th>
                 <th>Visit Type</th>
                 <th>Status</th>
-                <th className="text-right">Actions</th>
+                <th className="!text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -443,6 +464,20 @@ export default function AppointmentListPage() {
                             >
                               <RefreshCw size={15} />
                             </button>
+                            {isDoctor && (
+                              <button
+                                title="Notify Delay"
+                                className="p-1.5 rounded-md hover:bg-amber-100 text-amber-700 transition-colors"
+                                onClick={() => {
+                                  setDelayAppt(appt)
+                                  setDelayHours(0)
+                                  setDelayMinutes(15)
+                                  setDelayReason('')
+                                }}
+                              >
+                                <Clock size={15} />
+                              </button>
+                            )}
                           </>
                         )}
                         {!isPatient && active && (
@@ -637,6 +672,80 @@ export default function AppointmentListPage() {
               onClick={() => rescheduleMutation.mutate({ id: rescheduleAppt.id, newTime: `${newRescheduleTime}:00` })}
             >
               Confirm Reschedule
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!delayAppt} onClose={() => setDelayAppt(null)} title="Doctor Delay Notification">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Notify <strong className="text-foreground">{delayAppt?.patientName}</strong> that doctor is delayed.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label mb-1.5 block">Delay Hours</label>
+              <input
+                type="number"
+                min="0"
+                max="8"
+                className="form-input"
+                value={delayHours}
+                onChange={(e) => setDelayHours(Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
+            <div>
+              <label className="form-label mb-1.5 block">Delay Minutes</label>
+              <input
+                type="number"
+                min="0"
+                max="59"
+                className="form-input"
+                value={delayMinutes}
+                onChange={(e) => setDelayMinutes(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="form-label mb-1.5 block">Reason (optional)</label>
+            <textarea
+              className="form-input min-h-[88px] resize-none"
+              placeholder="Doctor in another consultation / emergency..."
+              value={delayReason}
+              onChange={(e) => setDelayReason(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                setDelayAppt(null)
+                setDelayHours(0)
+                setDelayMinutes(0)
+                setDelayReason('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              loading={doctorDelayMutation.isPending}
+              onClick={() => {
+                const totalDelay = (Number(delayHours) || 0) * 60 + (Number(delayMinutes) || 0)
+                if (totalDelay <= 0) {
+                  toast.error('Please enter delay hours or minutes')
+                  return
+                }
+
+                doctorDelayMutation.mutate({
+                  id: delayAppt.id,
+                  delayMinutesTotal: totalDelay,
+                  reason: delayReason.trim(),
+                })
+              }}
+            >
+              Notify Patient
             </Button>
           </div>
         </div>

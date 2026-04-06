@@ -136,7 +136,7 @@ public class QueueService {
 
     /** Mark queue entry as COMPLETED. */
     @Transactional
-    public QueueEntryResponse complete(Long queueEntryId) {
+        public QueueEntryResponse complete(Long queueEntryId, String requesterEmail) {
         QueueEntry entry =
                 queueEntryRepository
                         .findById(queueEntryId)
@@ -148,6 +148,22 @@ public class QueueService {
         entry.setStatus(QueueStatus.COMPLETED);
         entry.setCompletedAt(LocalDateTime.now());
         entry = queueEntryRepository.save(entry);
+
+                // Keep appointment lifecycle in sync when queue is completed from queue workflow.
+                if (entry.getAppointment() != null) {
+                        AppointmentStatus previousStatus = entry.getAppointment().getStatus();
+                        entry.getAppointment().setStatus(AppointmentStatus.COMPLETED);
+                        appointmentRepository.save(entry.getAppointment());
+
+                        appointmentAuditLogService.log(
+                                        entry.getAppointment(),
+                                        "COMPLETED",
+                                        previousStatus,
+                                        AppointmentStatus.COMPLETED,
+                                        null,
+                                        findActorByEmail(requesterEmail),
+                                        "Marked as completed from queue workflow");
+                }
 
         log.info("Queue entry completed: #{}", entry.getQueueNumber());
         return mapToResponse(entry);

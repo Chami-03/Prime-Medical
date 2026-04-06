@@ -144,6 +144,30 @@ public class AppointmentController {
         return ResponseEntity.ok(ApiResponse.success("Status updated", response));
     }
 
+    @PutMapping("/{id}/doctor-delay")
+    @PreAuthorize("hasAnyRole('ADMIN','RECEPTIONIST','DOCTOR')")
+    public ResponseEntity<ApiResponse<AppointmentResponse>> notifyDoctorDelay(
+            @PathVariable Long id, @RequestBody Map<String, String> body, Authentication authentication) {
+        String delayMinutesStr = body.get("delayMinutes");
+        if (delayMinutesStr == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("delayMinutes is required"));
+        }
+
+        Integer delayMinutes;
+        try {
+            delayMinutes = Integer.valueOf(delayMinutesStr);
+        } catch (NumberFormatException ex) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("delayMinutes must be a number"));
+        }
+
+        String reason = body.get("reason");
+        AppointmentResponse response =
+                appointmentService.notifyDoctorDelay(
+                        id, delayMinutes, reason, authentication.getName());
+        return ResponseEntity.ok(
+                ApiResponse.success("Patient notified about doctor delay", response));
+    }
+
     @PutMapping("/{id}/reschedule")
     @PreAuthorize("hasAnyRole('ADMIN','RECEPTIONIST','DOCTOR','PATIENT')")
     public ResponseEntity<ApiResponse<AppointmentResponse>> rescheduleAppointment(

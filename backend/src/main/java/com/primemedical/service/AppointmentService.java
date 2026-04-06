@@ -363,6 +363,105 @@ public class AppointmentService {
         return mapToResponse(appointment);
     }
 
+        @Transactional
+        public AppointmentResponse notifyDoctorDelay(
+                        Long id, Integer delayMinutes, String delayReason, String requesterEmail) {
+                if (delayMinutes == null || delayMinutes <= 0) {
+                        throw new BadRequestException("Delay minutes must be greater than zero");
+                }
+                if (delayMinutes > 480) {
+                        throw new BadRequestException("Delay minutes is too large");
+                }
+
+                Appointment appointment =
+                                appointmentRepository
+                                                .findById(id)
+                                                .orElseThrow(() -> new ResourceNotFoundException("Appointment", "id", id));
+
+                if (appointment.getStatus() == AppointmentStatus.CANCELLED
+                                || appointment.getStatus() == AppointmentStatus.COMPLETED) {
+                        throw new BadRequestException("Cannot delay a cancelled or completed appointment");
+                }
+                if (appointment.getStatus() == AppointmentStatus.IN_CONSULTATION) {
+                        throw new BadRequestException("Cannot mark delay after consultation has started");
+                }
+                if (appointment.getAppointmentTime() == null) {
+                        throw new BadRequestException("Appointment time is missing");
+                }
+
+                LocalDateTime previousTime = appointment.getAppointmentTime();
+                LocalDateTime delayedTime = previousTime.plusMinutes(delayMinutes);
+                String trimmedReason =
+                                (delayReason == null || delayReason.trim().isEmpty())
+                                                ? null
+                                                : delayReason.trim();
+
+                appointment.setAppointmentTime(delayedTime);
+                appointment = appointmentRepository.save(appointment);
+
+                String normalizedReason =
+                                (trimmedReason == null)
+                                                ? "Doctor will be delayed"
+                                                : trimmedReason;
+
+                appointmentAuditLogService.log(
+                                appointment,
+                                "DOCTOR_DELAY_NOTIFIED",
+                                appointment.getStatus(),
+                                appointment.getStatus(),
+                                normalizedReason,
+                                findActorByEmail(requesterEmail),
+                                "Doctor delay notified to patient. Delay: "
+                                                + delayMinutes
+                                                + " minutes. Time moved from "
+                                                + previousTime
+                                                + " to "
+                                                + delayedTime);
+
+                try {
+                        if (appointment.getPatient() != null
+                                        && appointment.getPatient().getUser() != null
+                                        && appointment.getPatient().getUser().getEmail() != null) {
+                                emailService.sendDoctorDelayNotification(
+                                                appointment.getPatient().getUser().getEmail(),
+                                                appointment.getPatient().getUser().getFirstName()
+                                                                + " "
+                                                                + appointment.getPatient().getUser().getLastName(),
+                                                appointment.getDoctor().getFirstName()
+                                                                + " "
+                                                                + appointment.getDoctor().getLastName(),
+                                                previousTime,
+                                                delayedTime,
+                                                appointment.getConfirmationCode(),
+                                                trimmedReason);
+                        } else {
+                                log.warn(
+                                                "Doctor-delay email skipped: missing patient email for appointment #{}",
+                                                appointment.getId());
+                        }
+                } catch (Exception e) {
+                        log.warn("Failed to send doctor-delay email notification: {}", e.getMessage());
+                }
+
+                try {
+                        if (appointment.getPatient() != null
+                                        && appointment.getPatient().getUser() != null
+                                        && appointment.getPatient().getUser().getPhone() != null) {
+                                smsService.sendAppointmentReschedule(
+                                                appointment.getPatient().getUser().getPhone(),
+                                                appointment.getDoctor().getFirstName()
+                                                                + " "
+                                                                + appointment.getDoctor().getLastName(),
+                                                delayedTime,
+                                                appointment.getConfirmationCode());
+                        }
+                } catch (Exception e) {
+                        log.warn("Failed to send doctor-delay SMS notification: {}", e.getMessage());
+                }
+
+                return mapToResponse(appointment);
+        }
+
     @Transactional
     public AppointmentResponse rescheduleAppointment(
             Long id, LocalDateTime newTime, String requesterEmail) {

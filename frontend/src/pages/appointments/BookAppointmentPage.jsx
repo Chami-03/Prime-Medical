@@ -118,6 +118,9 @@ export default function BookAppointmentPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] })
       queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-patient-upcoming'] })
       queryClient.invalidateQueries({ queryKey: ['patient-profile-upcoming-appointments'] })
       toast.success('Appointment booked and confirmed!')

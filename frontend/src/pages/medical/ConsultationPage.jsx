@@ -215,6 +215,11 @@ export default function ConsultationPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['today-queue'] }),
+        queryClient.invalidateQueries({ queryKey: ['appointments'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+        queryClient.invalidateQueries({ queryKey: ['patient-bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] }),
+        queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] }),
         queryClient.invalidateQueries({ queryKey: ['consultation', consultationIdNum] }),
         queryClient.invalidateQueries({ queryKey: ['notifications-queue-today'] }),
       ])
@@ -233,6 +238,9 @@ export default function ConsultationPage() {
       queryClient.invalidateQueries({ queryKey: ['consultation', consultationIdNum] })
       queryClient.invalidateQueries({ queryKey: ['notifications-pending-blood-checkups'] })
       queryClient.invalidateQueries({ queryKey: ['notifications-completed-blood-checkups'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] })
       toast.success('Blood checkup updated successfully')
     },
     onError: (err) => {

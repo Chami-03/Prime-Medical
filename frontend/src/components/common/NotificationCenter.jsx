@@ -36,6 +36,8 @@ export default function NotificationCenter() {
   const initializedBloodCheckRef = useRef(false)
   const previousCompletedBloodCheckIdsRef = useRef([])
   const initializedCompletedBloodCheckRef = useRef(false)
+  const previousPatientDelayLogIdsRef = useRef([])
+  const initializedPatientDelayRef = useRef(false)
 
   const showInventory = hasAnyRole('ADMIN', 'PHARMACIST', 'DOCTOR')
   const showAppts     = hasAnyRole('DOCTOR', 'NURSE', 'RECEPTIONIST', 'ADMIN', 'PATIENT')
@@ -44,6 +46,7 @@ export default function NotificationCenter() {
   const showNurseQueue = hasAnyRole('NURSE')
   const showBloodCheckups = hasAnyRole('NURSE')
   const showDoctorBloodReports = hasAnyRole('DOCTOR')
+  const showPatientDelayNotices = hasAnyRole('PATIENT')
 
   const { data: alertsRes } = useQuery({
     queryKey: ['notifications-alerts'],
@@ -57,6 +60,13 @@ export default function NotificationCenter() {
     queryKey: ['notifications-today-appts', todayDate],
     queryFn:  () => appointmentApi.getAll({ startDate: todayDate, endDate: todayDate }),
     enabled: showAppts,
+    refetchInterval: 60000,
+  })
+
+  const { data: myTodayApptsRes } = useQuery({
+    queryKey: ['notifications-patient-today-appts', todayDate],
+    queryFn: () => appointmentApi.getMyCalendar(todayDate),
+    enabled: showPatientDelayNotices,
     refetchInterval: 60000,
   })
 
@@ -113,7 +123,46 @@ export default function NotificationCenter() {
   const queueToday = Array.isArray(queueTodayRes?.data) ? queueTodayRes.data : []
   const pendingBloodCheckups = Array.isArray(pendingBloodCheckupsRes?.data) ? pendingBloodCheckupsRes.data : []
   const completedBloodCheckups = Array.isArray(completedBloodCheckupsRes?.data) ? completedBloodCheckupsRes.data : []
+  const myTodayAppts = Array.isArray(myTodayApptsRes?.data) ? myTodayApptsRes.data : []
   const readyPatients = queueToday.filter((q) => q?.status === 'READY')
+  const myTodayAppointmentIds = myTodayAppts
+    .map((appt) => appt?.id)
+    .filter((id) => Number.isInteger(id) && id > 0)
+
+  const { data: patientDelayAuditRes } = useQuery({
+    queryKey: ['notifications-patient-delay-audit', todayDate, myTodayAppointmentIds.join(',')],
+    enabled: showPatientDelayNotices && myTodayAppointmentIds.length > 0,
+    refetchInterval: 30000,
+    queryFn: async () => {
+      const auditResponses = await Promise.all(
+        myTodayAppointmentIds.map((id) => appointmentApi.getAuditTimeline(id))
+      )
+
+      const delayedByAppointment = []
+      auditResponses.forEach((response, index) => {
+        const appointment = myTodayAppts[index]
+        const logs = Array.isArray(response?.data) ? response.data : []
+        const latestDelayLog = logs
+          .filter((log) => log?.action === 'DOCTOR_DELAY_NOTIFIED')
+          .sort((a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0))[0]
+
+        if (latestDelayLog && appointment) {
+          delayedByAppointment.push({
+            id: latestDelayLog.id,
+            appointmentId: appointment.id,
+            appointmentTime: appointment.appointmentTime,
+            doctorName: appointment.doctorName,
+            reason: latestDelayLog.reason,
+            changedAt: latestDelayLog.changedAt,
+          })
+        }
+      })
+
+      return delayedByAppointment
+    },
+  })
+
+  const patientDelayEvents = Array.isArray(patientDelayAuditRes) ? patientDelayAuditRes : []
 
   useEffect(() => {
     if (!showPharmacyRx) return
@@ -247,6 +296,26 @@ export default function NotificationCenter() {
     previousCompletedBloodCheckIdsRef.current = ids
   }, [completedBloodCheckups, showDoctorBloodReports])
 
+  useEffect(() => {
+    if (!showPatientDelayNotices) return
+
+    const ids = patientDelayEvents.map((event) => event.id).filter(Boolean)
+    if (!initializedPatientDelayRef.current) {
+      previousPatientDelayLogIdsRef.current = ids
+      initializedPatientDelayRef.current = true
+      return
+    }
+
+    const previousSet = new Set(previousPatientDelayLogIdsRef.current)
+    const newOnes = patientDelayEvents.filter((event) => event?.id && !previousSet.has(event.id))
+
+    if (newOnes.length > 0) {
+      toast.success('Your appointment time was updated due to doctor delay')
+    }
+
+    previousPatientDelayLogIdsRef.current = ids
+  }, [patientDelayEvents, showPatientDelayNotices])
+
   // Build notification list
   const notifications = []
 
@@ -345,6 +414,26 @@ export default function NotificationCenter() {
       title: `${completedBloodCheckups.length} blood report${completedBloodCheckups.length > 1 ? 's' : ''} submitted`,
       desc: 'Nurse completed blood tests. Open consultation to review report.',
       link: `/consultation/${completedBloodCheckups[0]?.id || ''}`,
+      unread: true,
+    })
+  }
+
+  if (showPatientDelayNotices && patientDelayEvents.length > 0) {
+    const latest = [...patientDelayEvents].sort(
+      (a, b) => new Date(b?.changedAt || 0) - new Date(a?.changedAt || 0)
+    )[0]
+    const latestTime = latest?.appointmentTime
+      ? new Date(latest.appointmentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : null
+
+    notifications.push({
+      id: 'patient-doctor-delay',
+      type: 'warning',
+      title: `${patientDelayEvents.length} appointment${patientDelayEvents.length > 1 ? 's' : ''} delayed by doctor`,
+      desc: latestTime
+        ? `Latest update: ${latestTime}${latest?.reason ? ` • ${latest.reason}` : ''}`
+        : 'Doctor delay update received for your appointment.',
+      link: '/appointments',
       unread: true,
     })
   }

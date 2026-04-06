@@ -47,6 +47,10 @@ export default function PatientProfilePage() {
     queryKey: ['patient-bills-profile', id],
     queryFn: () => billingApi.getByPatient(id),
     enabled: !!id,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   })
 
   const {

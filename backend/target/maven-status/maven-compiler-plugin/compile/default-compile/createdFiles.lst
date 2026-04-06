@@ -73,6 +73,7 @@ com\primemedical\dto\response\InventoryAlertsResponse$AlertItem.class
 com\primemedical\service\InventoryService.class
 com\primemedical\dto\response\InventoryActivityResponse.class
 com\primemedical\entity\InventoryStockHistory.class
+com\primemedical\service\EmailService$BillLineItemEmailRow.class
 com\primemedical\dto\response\BillResponse.class
 com\primemedical\repository\InventoryStockHistoryRepository.class
 com\primemedical\dto\response\ConsultationResponse$VitalSignsInfo.class
