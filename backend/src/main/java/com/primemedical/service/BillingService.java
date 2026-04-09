@@ -630,20 +630,24 @@ public class BillingService {
         return mapToResponse(bill);
     }
 
-    /** Get bill by ID. */
-    @Transactional(readOnly = true)
+        /** Get bill by ID. */
+        @Transactional
     public BillResponse getBillById(Long id) {
         Bill bill =
                 billRepository
                         .findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Bill", "id", id));
+                reconcileDispensedMedicineCharges(bill);
         return mapToResponse(bill);
     }
 
     /** Get all bills for a patient. */
-    @Transactional(readOnly = true)
+        @Transactional
     public List<BillResponse> getBillsByPatientId(Long patientId) {
-        return billRepository.findByPatientId(patientId).stream()
+                List<Bill> bills = billRepository.findByPatientId(patientId);
+                bills.forEach(this::reconcileDispensedMedicineCharges);
+
+                return bills.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -739,6 +743,64 @@ public class BillingService {
             ensureBaseFeeLineItems(bookingBill, consultation);
             recalculateBillTotalsAndStatus(bookingBill);
             return billRepository.save(bookingBill);
+    }
+
+    private void reconcileDispensedMedicineCharges(Bill bill) {
+        if (bill == null || bill.getConsultation() == null || bill.getConsultation().getId() == null) {
+            return;
+        }
+
+        Prescription dispensedPrescription =
+                prescriptionRepository
+                        .findByConsultationId(bill.getConsultation().getId())
+                        .filter(p -> p.getStatus() == PrescriptionStatus.DISPENSED)
+                        .orElse(null);
+
+        if (dispensedPrescription == null) {
+            return;
+        }
+
+        int currentMedicineCount =
+                (int)
+                        bill.getLineItems().stream()
+                                .filter(li -> li.getItemType() == ItemType.MEDICINE)
+                                .count();
+        int expectedMedicineCount =
+                dispensedPrescription.getItems() != null ? dispensedPrescription.getItems().size() : 0;
+
+        BigDecimal currentMedicineTotal =
+                bill.getLineItems().stream()
+                        .filter(li -> li.getItemType() == ItemType.MEDICINE)
+                        .map(BillLineItem::getTotalPrice)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal expectedMedicineTotal =
+                (dispensedPrescription.getItems() == null ? List.<PrescriptionItem>of() : dispensedPrescription.getItems())
+                        .stream()
+                        .map(
+                                item -> {
+                                    BigDecimal unitPrice = BigDecimal.ZERO;
+                                    if (item.getInventoryItem() != null
+                                            && item.getInventoryItem().getSellingPrice() != null) {
+                                        unitPrice = item.getInventoryItem().getSellingPrice();
+                                    }
+                                                                        int qty = item.getQuantity() == null ? 0 : item.getQuantity().intValue();
+                                                                        return unitPrice.multiply(BigDecimal.valueOf(qty));
+                                })
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        boolean needsSync =
+                currentMedicineCount != expectedMedicineCount
+                        || currentMedicineTotal.compareTo(expectedMedicineTotal) != 0;
+
+        if (!needsSync) {
+            return;
+        }
+
+        bill.getLineItems().removeIf(li -> li.getItemType() == ItemType.MEDICINE);
+        addMedicineLineItems(bill, dispensedPrescription);
+        recalculateBillTotalsAndStatus(bill);
+        billRepository.save(bill);
     }
 
         private void addBaseFeeLineItems(Bill bill, Consultation consultation) {

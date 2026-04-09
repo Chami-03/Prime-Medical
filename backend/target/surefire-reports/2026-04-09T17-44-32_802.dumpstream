@@ -1,0 +1,5 @@
+# Created at 2026-04-09T17:44:33.071
+Boot Manifest-JAR contains absolute paths in classpath 'D:\IT Projects\Prime Medical\backend\target\test-classes'
+Hint: <argLine>-Djdk.net.URLClassPath.disableClassPathURLCheck=true</argLine>
+'other' has different root
+

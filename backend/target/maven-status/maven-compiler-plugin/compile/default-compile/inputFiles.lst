@@ -53,6 +53,7 @@ D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\dto\response
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\repository\PatientRepository.java
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\service\ConsultationService.java
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\enums\AllergySeverity.java
+D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\service\ConsultationEventStreamService.java
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\dto\response\StaffProfileResponse.java
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\exception\ResourceNotFoundException.java
 D:\IT Projects\Prime Medical\backend\src\main\java\com\primemedical\repository\PaymentRepository.java

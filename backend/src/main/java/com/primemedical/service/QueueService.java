@@ -40,6 +40,7 @@ public class QueueService {
     private final com.primemedical.repository.ConsultationRepository consultationRepository;
     private final VitalSignsRepository vitalSignsRepository;
     private final UserRepository userRepository;
+                private final ConsultationEventStreamService consultationEventStreamService;
         private final AppointmentAuditLogService appointmentAuditLogService;
 
     /** Check in a patient — auto-assign queue number for today. */
@@ -256,6 +257,9 @@ public class QueueService {
         }
 
         vitalSignsRepository.save(vitals);
+                if (linkedConsultation != null && linkedConsultation.getId() != null) {
+                        consultationEventStreamService.publishVitalsUpdated(linkedConsultation.getId());
+                }
 
         if (entry.getStatus() != QueueStatus.IN_CONSULTATION) {
             entry.setStatus(QueueStatus.READY);

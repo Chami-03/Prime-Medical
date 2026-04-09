@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { toast } from 'react-hot-toast'
 import { ArrowLeft, CreditCard, Banknote, Smartphone, Receipt, User } from 'lucide-react'
@@ -25,7 +25,8 @@ const unwrapBill = (payload) => payload?.data?.data || payload?.data || payload 
 export default function PaymentPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const [paidBill, setPaidBill] = useState(null)
+  const queryClient = useQueryClient()
+  const [showPaymentSuccess, setShowPaymentSuccess] = useState(false)
   const billId = Number(id)
   const hasValidBillId = Number.isInteger(billId) && billId > 0
 
@@ -33,6 +34,10 @@ export default function PaymentPage() {
     queryKey: ['bill', billId],
     queryFn: () => billingApi.getById(billId),
     enabled: hasValidBillId,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   })
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({
@@ -49,8 +54,13 @@ export default function PaymentPage() {
   const payMutation = useMutation({
     mutationFn: (data) => billingApi.processPayment(billId, { ...data, amount: roundMoney(data.amount) }),
     onSuccess: (response) => {
-      const updatedBill = response?.data || response
-      setPaidBill(updatedBill)
+      const updatedBill = unwrapBill(response)
+      queryClient.setQueryData(['bill', billId], response)
+      queryClient.invalidateQueries({ queryKey: ['bill'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] })
+      setShowPaymentSuccess(true)
       const updatedPaidTotal = (Array.isArray(updatedBill?.payments) ? updatedBill.payments : [])
         .reduce((sum, payment) => sum + toMoney(payment?.amount), 0)
       const updatedBalance = Math.max(roundMoney(updatedBill?.netAmount) - roundMoney(updatedPaidTotal), 0)
@@ -59,7 +69,7 @@ export default function PaymentPage() {
     onError: (err) => toast.error(err.response?.data?.message || 'Payment failed'),
   })
 
-  const bill = paidBill || unwrapBill(billRes)
+  const bill = unwrapBill(billRes)
   const lineItems = Array.isArray(bill?.lineItems) ? bill.lineItems : []
   const paidTotal = (Array.isArray(bill?.payments) ? bill.payments : [])
     .reduce((sum, payment) => sum + toMoney(payment?.amount), 0)
@@ -140,7 +150,7 @@ export default function PaymentPage() {
         <Badge status={bill?.status} />
       </div>
 
-      {paidBill && (
+      {showPaymentSuccess && (
         <div className="pm-card p-4 border border-emerald-200 bg-emerald-50/60 dark:bg-emerald-900/10 dark:border-emerald-800/30">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
@@ -149,7 +159,7 @@ export default function PaymentPage() {
               </p>
               <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
                 {balanceDue <= 0
-                  ? `Receipt is ready for Invoice #${paidBill.invoiceNumber}`
+                  ? `Receipt is ready for Invoice #${bill?.invoiceNumber}`
                   : `Remaining balance: LKR ${formatMoney(balanceDue)}`}
               </p>
             </div>
@@ -162,11 +172,11 @@ export default function PaymentPage() {
                 <Receipt size={14} />
                 Print Receipt
               </button>
-              {!!paidBill?.patientId && (
+              {!!bill?.patientId && (
                 <button
                   type="button"
                   className="btn-primary h-9 px-3 text-sm flex items-center gap-1.5"
-                  onClick={() => navigate(`/patients/${paidBill.patientId}`)}
+                  onClick={() => navigate(`/patients/${bill.patientId}`)}
                 >
                   <User size={14} />
                   Open Patient Profile
