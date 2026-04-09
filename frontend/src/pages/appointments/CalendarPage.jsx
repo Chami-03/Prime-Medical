@@ -49,11 +49,16 @@ export default function CalendarPage() {
   const { user, hasRole } = useAuth()
   const isPatient = hasRole('PATIENT')
   const isReceptionist = hasRole('RECEPTIONIST')
+  const isDoctor = hasRole('DOCTOR')
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0])
   const [selectedDoctorId, setSelectedDoctorId] = useState(hasRole('DOCTOR') ? (user?.id || null) : null)
   const [detailAppt, setDetailAppt] = useState(null)
   const [rescheduleAppt, setRescheduleAppt] = useState(null)
   const [newRescheduleTime, setNewRescheduleTime] = useState('')
+  const [delayAppt, setDelayAppt] = useState(null)
+  const [delayHours, setDelayHours] = useState(0)
+  const [delayMinutes, setDelayMinutes] = useState(0)
+  const [delayReason, setDelayReason] = useState('')
   const [cancelAppt, setCancelAppt] = useState(null)
   const [deleteAppt, setDeleteAppt] = useState(null)
 
@@ -167,6 +172,23 @@ export default function CalendarPage() {
     },
   })
 
+  const doctorDelayMutation = useMutation({
+    mutationFn: ({ id, delayMinutesTotal, reason }) =>
+      appointmentApi.notifyDoctorDelay(id, delayMinutesTotal, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['appointments'] })
+      toast.success('Patient notified about doctor delay')
+      setDelayAppt(null)
+      setDelayHours(0)
+      setDelayMinutes(0)
+      setDelayReason('')
+    },
+    onError: (err) => {
+      toast.error(err.response?.data?.message || 'Failed to notify patient about delay')
+    },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: (id) => appointmentApi.deletePermanent(id),
     onMutate: async (id) => {
@@ -237,7 +259,7 @@ export default function CalendarPage() {
           <CalendarDays size={18} className="text-primary" /> {isPatient ? 'My Appointments' : 'Doctor Schedule'}
         </h2>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
-          {!isPatient && hasRole('DOCTOR') && <span className="text-sm text-muted-foreground">Dr. {currentDoctorName || '-'}</span>}
+          {!isPatient && isDoctor && <span className="text-sm text-muted-foreground">Dr. {currentDoctorName || '-'}</span>}
           {!isPatient && isReceptionist && (
             <select
               className="form-select h-10 py-0 text-sm leading-6 w-full sm:w-56 min-w-[12rem]"
@@ -379,6 +401,20 @@ export default function CalendarPage() {
                           >
                             <RefreshCw size={14} />
                           </button>
+                          {isDoctor && (
+                            <button
+                              title="Notify Delay"
+                              className="p-1.5 rounded-md hover:bg-amber-100 text-amber-700 transition-colors"
+                              onClick={() => {
+                                setDelayAppt(appt)
+                                setDelayHours(0)
+                                setDelayMinutes(15)
+                                setDelayReason('')
+                              }}
+                            >
+                              <Clock size={14} />
+                            </button>
+                          )}
                           <button
                             title="Cancel"
                             className="p-1.5 rounded-md hover:bg-destructive/10 text-destructive transition-colors"
@@ -484,6 +520,80 @@ export default function CalendarPage() {
               onClick={() => rescheduleMutation.mutate({ id: rescheduleAppt.id, newTime: `${newRescheduleTime}:00` })}
             >
               Save Changes
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal isOpen={!!delayAppt} onClose={() => setDelayAppt(null)} title="Doctor Delay Notification">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Notify <strong className="text-foreground">{delayAppt?.patientName}</strong> that doctor is delayed.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="form-label mb-1.5 block">Delay Hours</label>
+              <input
+                type="number"
+                min="0"
+                max="8"
+                className="form-input"
+                value={delayHours}
+                onChange={(e) => setDelayHours(Math.max(0, Number(e.target.value) || 0))}
+              />
+            </div>
+            <div>
+              <label className="form-label mb-1.5 block">Delay Minutes</label>
+              <input
+                type="number"
+                min="0"
+                max="59"
+                className="form-input"
+                value={delayMinutes}
+                onChange={(e) => setDelayMinutes(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="form-label mb-1.5 block">Reason (optional)</label>
+            <textarea
+              className="form-input min-h-[88px] resize-none"
+              placeholder="Doctor in another consultation / emergency..."
+              value={delayReason}
+              onChange={(e) => setDelayReason(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <Button
+              variant="secondary"
+              className="flex-1"
+              onClick={() => {
+                setDelayAppt(null)
+                setDelayHours(0)
+                setDelayMinutes(0)
+                setDelayReason('')
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              loading={doctorDelayMutation.isPending}
+              onClick={() => {
+                const totalDelay = (Number(delayHours) || 0) * 60 + (Number(delayMinutes) || 0)
+                if (totalDelay <= 0) {
+                  toast.error('Please enter delay hours or minutes')
+                  return
+                }
+
+                doctorDelayMutation.mutate({
+                  id: delayAppt.id,
+                  delayMinutesTotal: totalDelay,
+                  reason: delayReason.trim(),
+                })
+              }}
+            >
+              Notify Patient
             </Button>
           </div>
         </div>

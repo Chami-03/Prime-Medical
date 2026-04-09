@@ -61,6 +61,8 @@ export default function QueueManagementPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['today-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['appointments'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
       toast.success('Queue updated')
     },
     onError: (err) => {

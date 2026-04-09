@@ -9,6 +9,44 @@ import { RoleProtected, useAuth } from '../../context/AuthContext'
 import Modal from '../../components/common/Modal'
 import { Thermometer, Heart, Activity, Weight, Ruler, Wind, Stethoscope, Clock, FileText, Lock, FilePlus, Pill, Droplets, Filter, Search } from 'lucide-react'
 
+const BLOOD_TEST_OPTIONS = [
+  { value: 'CBC', label: 'CBC' },
+  { value: 'FBS', label: 'FBS' },
+  { value: 'CRP', label: 'CRP' },
+  { value: 'LFT', label: 'LFT' },
+  { value: 'RFT', label: 'RFT' },
+  { value: 'LIPID_PROFILE', label: 'Lipid Profile' },
+  { value: 'OTHER', label: 'Other' },
+]
+
+const createEmptyBloodTest = () => ({ type: '', report: '' })
+
+const parseStoredBloodTests = (consultation) => {
+  const rawTypes = consultation?.bloodTestType || ''
+  const rawReport = consultation?.bloodTestReport || consultation?.bloodCheckupNotes || ''
+
+  const types = rawTypes
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  if (types.length === 0 && !rawReport.trim()) {
+    return [createEmptyBloodTest()]
+  }
+
+  const reportLines = rawReport
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^\d+\.\s*/, ''))
+
+  const maxLen = Math.max(types.length, reportLines.length, 1)
+  return Array.from({ length: maxLen }, (_, idx) => ({
+    type: types[idx] || '',
+    report: reportLines[idx] || (idx === 0 ? rawReport.trim() : ''),
+  }))
+}
+
 function VitalCard({ label, value, unit, icon: Icon }) {
   return (
     <div className="bg-muted/40 rounded-xl p-3 flex flex-col gap-1 border border-border/50">
@@ -44,8 +82,7 @@ export default function ConsultationPage() {
   const [historyDateTo, setHistoryDateTo] = useState('')
   const [historySearch, setHistorySearch] = useState('')
   const [historyFilter, setHistoryFilter] = useState('ALL')
-  const [bloodTestType, setBloodTestType] = useState('')
-  const [bloodTestReport, setBloodTestReport] = useState('')
+  const [bloodTests, setBloodTests] = useState([createEmptyBloodTest()])
 
   const { data: consultationRes, isLoading } = useQuery({
     queryKey: ['consultation', consultationIdNum],
@@ -170,10 +207,25 @@ export default function ConsultationPage() {
         isConfidential: consultation.isConfidential || false,
         bloodCheckRequired: consultation.bloodCheckRequired || false,
       })
-      setBloodTestType(consultation.bloodTestType || '')
-      setBloodTestReport(consultation.bloodTestReport || consultation.bloodCheckupNotes || '')
+      setBloodTests(parseStoredBloodTests(consultation))
     }
   }, [consultation, reset])
+
+  useEffect(() => {
+    if (!hasValidConsultationId) return
+
+    const unsubscribe = consultationApi.streamVitalsUpdates(
+      consultationIdNum,
+      () => {
+        queryClient.invalidateQueries({ queryKey: ['consultation', consultationIdNum] })
+      },
+      () => {
+        // Polling remains as a fallback when the stream reconnects.
+      }
+    )
+
+    return () => unsubscribe()
+  }, [consultationIdNum, hasValidConsultationId, queryClient])
 
   const notesMutation = useMutation({
     mutationFn: (data) => {
@@ -215,6 +267,11 @@ export default function ConsultationPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['today-queue'] }),
+        queryClient.invalidateQueries({ queryKey: ['appointments'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendar'] }),
+        queryClient.invalidateQueries({ queryKey: ['patient-bills'] }),
+        queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] }),
+        queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] }),
         queryClient.invalidateQueries({ queryKey: ['consultation', consultationIdNum] }),
         queryClient.invalidateQueries({ queryKey: ['notifications-queue-today'] }),
       ])
@@ -233,12 +290,30 @@ export default function ConsultationPage() {
       queryClient.invalidateQueries({ queryKey: ['consultation', consultationIdNum] })
       queryClient.invalidateQueries({ queryKey: ['notifications-pending-blood-checkups'] })
       queryClient.invalidateQueries({ queryKey: ['notifications-completed-blood-checkups'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills'] })
+      queryClient.invalidateQueries({ queryKey: ['patient-bills-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['my-patient-profile-billing'] })
       toast.success('Blood checkup updated successfully')
     },
     onError: (err) => {
       toast.error(err?.response?.data?.message || 'Failed to update blood checkup')
     },
   })
+
+  const updateBloodTestRow = (index, field, value) => {
+    setBloodTests((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)))
+  }
+
+  const addBloodTestRow = () => {
+    setBloodTests((prev) => [...prev, createEmptyBloodTest()])
+  }
+
+  const removeBloodTestRow = (index) => {
+    setBloodTests((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.length > 0 ? next : [createEmptyBloodTest()]
+    })
+  }
 
   if (isLoading) return (
     <div className="flex items-center justify-center py-16">
@@ -478,10 +553,16 @@ export default function ConsultationPage() {
 
                   {consultation?.bloodCheckupNotes && (
                     <div className="text-xs text-foreground/80 bg-card border border-border rounded-lg p-3">
-                      {consultation?.bloodTestType && (
-                        <p className="text-primary font-semibold mb-1">Test Type: {consultation.bloodTestType}</p>
-                      )}
-                      {consultation.bloodCheckupNotes}
+                      {parseStoredBloodTests(consultation)
+                        .filter((entry) => entry.type || entry.report)
+                        .map((entry, idx) => (
+                          <div key={`${entry.type}-${idx}`} className={idx > 0 ? 'mt-2 pt-2 border-t border-border' : ''}>
+                            <p className="text-primary font-semibold">
+                              Test {idx + 1}: {entry.type || 'Not specified'}
+                            </p>
+                            {entry.report && <p className="mt-0.5">{entry.report}</p>}
+                          </div>
+                        ))}
                       {consultation?.bloodCheckUpdatedByName && (
                         <p className="text-[11px] text-muted-foreground mt-1">
                           Updated by {consultation.bloodCheckUpdatedByName}
@@ -492,53 +573,83 @@ export default function ConsultationPage() {
 
                   {hasAnyRole('NURSE', 'ADMIN') && !consultation?.bloodCheckCompleted && (
                     <div className="space-y-2">
-                      <div>
-                        <label className="form-label">Blood Test Type</label>
-                        <select
-                          className="form-input mt-1"
-                          value={bloodTestType}
-                          onChange={(e) => setBloodTestType(e.target.value)}
-                        >
-                          <option value="">Select blood test type</option>
-                          <option value="CBC">CBC</option>
-                          <option value="FBS">FBS</option>
-                          <option value="CRP">CRP</option>
-                          <option value="LFT">LFT</option>
-                          <option value="RFT">RFT</option>
-                          <option value="LIPID_PROFILE">Lipid Profile</option>
-                          <option value="OTHER">Other</option>
-                        </select>
-                      </div>
+                      {bloodTests.map((entry, index) => (
+                        <div key={`blood-test-${index}`} className="rounded-lg border border-border bg-card/60 p-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-foreground">Blood Test {index + 1}</p>
+                            <button
+                              type="button"
+                              className="text-xs text-destructive disabled:opacity-40"
+                              disabled={bloodTests.length === 1}
+                              onClick={() => removeBloodTestRow(index)}
+                            >
+                              Remove
+                            </button>
+                          </div>
 
-                      <div>
-                        <label className="form-label">Blood Test Report</label>
-                        <textarea
-                          rows={3}
-                          className="form-input mt-1 resize-none"
-                          placeholder="Enter blood test report details"
-                          value={bloodTestReport}
-                          onChange={(e) => setBloodTestReport(e.target.value)}
-                        />
-                      </div>
+                          <div>
+                            <label className="form-label">Test Type</label>
+                            <select
+                              className="form-input mt-1"
+                              value={entry.type}
+                              onChange={(e) => updateBloodTestRow(index, 'type', e.target.value)}
+                            >
+                              <option value="">Select blood test type</option>
+                              {BLOOD_TEST_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="form-label">Test Report</label>
+                            <textarea
+                              rows={3}
+                              className="form-input mt-1 resize-none"
+                              placeholder="Enter this test report details"
+                              value={entry.report}
+                              onChange={(e) => updateBloodTestRow(index, 'report', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+
+                      <button
+                        type="button"
+                        className="btn-secondary h-8 px-3 text-xs"
+                        onClick={addBloodTestRow}
+                      >
+                        + Add Another Blood Test
+                      </button>
 
                       <button
                         type="button"
                         className="btn-primary h-8 px-3 text-xs"
                         disabled={bloodCheckMutation.isPending}
                         onClick={() => {
-                          if (!bloodTestType.trim()) {
-                            toast.error('Please select blood test type')
+                          const normalized = bloodTests
+                            .map((entry) => ({
+                              type: entry.type.trim(),
+                              report: entry.report.trim(),
+                            }))
+                            .filter((entry) => entry.type || entry.report)
+
+                          if (normalized.length === 0) {
+                            toast.error('Please add at least one blood test')
                             return
                           }
-                          if (!bloodTestReport.trim()) {
-                            toast.error('Please enter blood test report')
+
+                          const hasMissing = normalized.some((entry) => !entry.type || !entry.report)
+                          if (hasMissing) {
+                            toast.error('Each added blood test must include both type and report')
                             return
                           }
+
                           bloodCheckMutation.mutate({
                             bloodCheckCompleted: true,
-                            bloodTestType: bloodTestType.trim(),
-                            bloodTestReport: bloodTestReport.trim(),
-                            bloodCheckupNotes: bloodTestReport.trim(),
+                            bloodTestType: normalized.map((entry) => entry.type).join(', '),
+                            bloodTestReport: normalized.map((entry, idx) => `${idx + 1}. ${entry.report}`).join('\n'),
+                            bloodCheckupNotes: normalized.map((entry, idx) => `${idx + 1}. ${entry.type}: ${entry.report}`).join('\n'),
                           })
                         }}
                       >

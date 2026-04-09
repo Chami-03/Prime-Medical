@@ -34,6 +34,9 @@ export const appointmentApi = {
     reschedule: (id, newTime) =>
         api.put(`/appointments/${id}/reschedule`, { newTime }).then((r) => r.data),
 
+    notifyDoctorDelay: (id, delayMinutes, reason) =>
+        api.put(`/appointments/${id}/doctor-delay`, { delayMinutes: String(delayMinutes), reason }).then((r) => r.data),
+
     deletePermanent: (id) =>
         api.delete(`/appointments/${id}`).then((r) => r.data),
 

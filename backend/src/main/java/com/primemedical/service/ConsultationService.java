@@ -44,6 +44,7 @@ public class ConsultationService {
     private final VitalSignsRepository vitalSignsRepository;
     private final PatientRepository patientRepository;
     private final UserRepository userRepository;
+                private final ConsultationEventStreamService consultationEventStreamService;
         private final BillingService billingService;
         private final AppointmentAuditLogService appointmentAuditLogService;
 
@@ -198,6 +199,7 @@ public class ConsultationService {
                         .build();
 
         vitalSignsRepository.save(vitals);
+        consultationEventStreamService.publishVitalsUpdated(consultationId);
         log.info("Vitals recorded for consultation #{}", consultationId);
 
         return mapToResponse(consultation);

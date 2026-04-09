@@ -3,6 +3,7 @@ package com.primemedical.service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.Year;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -56,6 +57,7 @@ public class BillingService {
         private static final BigDecimal CHANNELING_FEE = new BigDecimal("1000.00");
         private static final BigDecimal DEFAULT_BLOOD_TEST_FEE = new BigDecimal("1000.00");
     private static final BigDecimal TAX_RATE = BigDecimal.ZERO; // 0% tax
+        private static final DateTimeFormatter INVOICE_TS_FMT = DateTimeFormatter.ofPattern("yyMMddHHmmss");
 
         /**
          * Ensure a consultation bill reflects the latest dispensed prescription medicine charges.
@@ -82,11 +84,7 @@ public class BillingService {
 
                 Bill bill = billRepository.findByConsultationId(consultation.getId()).orElse(null);
                 if (bill == null) {
-                        bill =
-                                        billRepository
-                                                        .findTopByPatientIdAndConsultationIsNullOrderByCreatedAtDesc(
-                                                                        consultation.getPatient().getId())
-                                                        .orElse(null);
+                        bill = bindConsultationToMatchingBookingBill(consultation);
                 }
 
                 if (bill == null) {
@@ -178,11 +176,7 @@ public class BillingService {
 
                 Bill bill = billRepository.findByConsultationId(consultationId).orElse(null);
                 if (bill == null) {
-                        bill =
-                                        billRepository
-                                                        .findTopByPatientIdAndConsultationIsNullOrderByCreatedAtDesc(
-                                                                        consultation.getPatient().getId())
-                                                        .orElse(null);
+                        bill = bindConsultationToMatchingBookingBill(consultation);
                 }
 
                 if (bill == null) {
@@ -346,38 +340,63 @@ public class BillingService {
             @Transactional(propagation = Propagation.REQUIRES_NEW)
             public BillResponse generateBookingBill(
                     Long patientId, String userEmail, String appointmentConfirmationCode) {
-                    BillResponse created = generateBill(new BillRequest(patientId, null), userEmail);
-
-                    if (appointmentConfirmationCode == null || appointmentConfirmationCode.isBlank()) {
-                            return created;
-                    }
-
-                    Bill bill =
-                                    billRepository
-                                                    .findById(created.getId())
+                    Patient patient =
+                                    patientRepository
+                                                    .findById(patientId)
                                                     .orElseThrow(
                                                                     () ->
                                                                                     new ResourceNotFoundException(
-                                                                                                    "Bill", "id", created.getId()));
+                                                                                                    "Patient", "id", patientId));
 
-                    boolean updated = false;
-                    for (BillLineItem lineItem : bill.getLineItems()) {
-                            if (lineItem.getItemType() == ItemType.OTHER
-                                            && lineItem.getDescription() != null
-                                            && lineItem.getDescription().equalsIgnoreCase("Channeling Fee")) {
-                                    lineItem.setDescription(
-                                                    "Channeling Fee (Appt: "
-                                                                    + appointmentConfirmationCode.trim()
-                                                                    + ")");
-                                    updated = true;
+                    User createdBy =
+                                    userRepository
+                                                    .findByEmail(userEmail)
+                                                    .orElseThrow(
+                                                                    () ->
+                                                                                    new ResourceNotFoundException(
+                                                                                                    "User", "email", userEmail));
+
+                    String invoiceNumber = generateInvoiceNumber();
+
+                    Bill bill =
+                                    Bill.builder()
+                                                    .invoiceNumber(invoiceNumber)
+                                                    .patient(patient)
+                                                    .consultation(null)
+                                                    .createdBy(createdBy)
+                                                    .status(BillStatus.ISSUED)
+                                                    .lineItems(new ArrayList<>())
+                                                    .payments(new ArrayList<>())
+                                                    .build();
+
+                    addBaseFeeLineItems(bill, null);
+
+                    if (appointmentConfirmationCode != null && !appointmentConfirmationCode.isBlank()) {
+                            String code = appointmentConfirmationCode.trim();
+                            for (BillLineItem lineItem : bill.getLineItems()) {
+                                    if (lineItem.getItemType() == ItemType.OTHER
+                                                    && lineItem.getDescription() != null
+                                                    && lineItem.getDescription().equalsIgnoreCase("Channeling Fee")) {
+                                            lineItem.setDescription("Channeling Fee (Appt: " + code + ")");
+                                    }
                             }
                     }
 
-                    if (!updated) {
-                            return created;
-                    }
+                    BigDecimal subtotal =
+                                    bill.getLineItems().stream()
+                                                    .map(BillLineItem::getTotalPrice)
+                                                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal taxAmount = subtotal.multiply(TAX_RATE);
+                    BigDecimal netAmount = subtotal.add(taxAmount);
+
+                    bill.setSubtotal(subtotal);
+                    bill.setTaxAmount(taxAmount);
+                    bill.setDiscount(BigDecimal.ZERO);
+                    bill.setNetAmount(netAmount);
 
                     Bill saved = billRepository.save(bill);
+                    log.info("Booking bill generated: {} — Net: {}", invoiceNumber, netAmount);
+
                     return mapToResponse(saved);
             }
 
@@ -427,23 +446,22 @@ public class BillingService {
                             return;
                     }
 
-                    List<Payment> payments = paymentRepository.findByBillId(target.getId());
-                    if (payments != null && !payments.isEmpty()) {
-                            target.setStatus(BillStatus.REFUNDED);
-                            billRepository.save(target);
+                    boolean changed = ensureBookingRefundLineItems(target, appointmentConfirmationCode);
+                    target.setStatus(BillStatus.REFUNDED);
+                    recalculateBillTotalsAndStatus(target);
+                    billRepository.save(target);
+
+                    if (changed) {
                             log.info(
-                                            "Marked booking bill {} as REFUNDED after cancelling appointment {}",
+                                            "Applied booking refund line items and marked bill {} as REFUNDED for appointment {}",
                                             target.getInvoiceNumber(),
                                             appointmentConfirmationCode);
-                            return;
+                    } else {
+                            log.info(
+                                            "Booking bill {} already refunded; status ensured for appointment {}",
+                                            target.getInvoiceNumber(),
+                                            appointmentConfirmationCode);
                     }
-
-                    String invoiceNumber = target.getInvoiceNumber();
-                    billRepository.delete(target);
-                    log.info(
-                                    "Removed unpaid booking bill {} after cancelling appointment {}",
-                                    invoiceNumber,
-                                    appointmentConfirmationCode);
             }
 
         @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -463,6 +481,11 @@ public class BillingService {
 
                 if (consultation.getPatient() == null) {
                         throw new BadRequestException("Consultation has no linked patient");
+                }
+
+                Bill bookingBill = bindConsultationToMatchingBookingBill(consultation);
+                if (bookingBill != null) {
+                        return mapToResponse(bookingBill);
                 }
 
                 String billingUserEmail =
@@ -512,18 +535,14 @@ public class BillingService {
 
         paymentRepository.save(payment);
 
-        // Calculate total paid
+        // Recalculate totals from all line items so every charge is reflected before status update.
+        recalculateBillTotalsAndStatus(bill);
+        bill = billRepository.save(bill);
+
         BigDecimal totalPaid =
                 paymentRepository.findByBillId(billId).stream()
                         .map(Payment::getAmount)
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        if (totalPaid.compareTo(bill.getNetAmount()) >= 0) {
-            bill.setStatus(BillStatus.PAID);
-        } else {
-            bill.setStatus(BillStatus.PARTIAL);
-        }
-        bill = billRepository.save(bill);
 
         log.info(
                 "Payment processed: {} on bill {} — Total paid: {}/{}",
@@ -556,6 +575,43 @@ public class BillingService {
         }
 
         try {
+            if (bill.getStatus() == BillStatus.PAID
+                    && bill.getPatient() != null
+                    && bill.getPatient().getUser() != null
+                    && bill.getPatient().getUser().getEmail() != null) {
+                String patientName =
+                        bill.getPatient().getUser().getFirstName()
+                                + " "
+                                + bill.getPatient().getUser().getLastName();
+
+                List<EmailService.BillLineItemEmailRow> emailLineItems =
+                        bill.getLineItems() == null
+                                ? List.of()
+                                : bill.getLineItems().stream()
+                                        .map(
+                                                li ->
+                                                        new EmailService.BillLineItemEmailRow(
+                                                                li.getDescription(),
+                                                                li.getQuantity(),
+                                                                li.getUnitPrice(),
+                                                                li.getTotalPrice()))
+                                        .collect(Collectors.toList());
+
+                emailService.sendBillPaidReceiptEmail(
+                        bill.getPatient().getUser().getEmail(),
+                        patientName,
+                        bill.getInvoiceNumber(),
+                        bill.getSubtotal(),
+                        bill.getTaxAmount(),
+                        bill.getNetAmount(),
+                        totalPaid,
+                        emailLineItems);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to send bill receipt email after payment completion: {}", e.getMessage());
+        }
+
+        try {
             if (bill.getPatient() != null
                     && bill.getPatient().getUser() != null
                     && bill.getPatient().getUser().getPhone() != null) {
@@ -574,20 +630,24 @@ public class BillingService {
         return mapToResponse(bill);
     }
 
-    /** Get bill by ID. */
-    @Transactional(readOnly = true)
+        /** Get bill by ID. */
+        @Transactional
     public BillResponse getBillById(Long id) {
         Bill bill =
                 billRepository
                         .findById(id)
                         .orElseThrow(() -> new ResourceNotFoundException("Bill", "id", id));
+                reconcileDispensedMedicineCharges(bill);
         return mapToResponse(bill);
     }
 
     /** Get all bills for a patient. */
-    @Transactional(readOnly = true)
+        @Transactional
     public List<BillResponse> getBillsByPatientId(Long patientId) {
-        return billRepository.findByPatientId(patientId).stream()
+                List<Bill> bills = billRepository.findByPatientId(patientId);
+                bills.forEach(this::reconcileDispensedMedicineCharges);
+
+                return bills.stream()
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -595,8 +655,20 @@ public class BillingService {
     // ── Private helpers ──────────────────────────────────────────
 
     private String generateInvoiceNumber() {
-        long count = billRepository.count() + 1;
-        return String.format("INV-%d-%05d", Year.now().getValue(), count);
+                String year = String.valueOf(Year.now().getValue());
+                for (int attempt = 0; attempt < 8; attempt++) {
+                        String candidate =
+                                        "INV-"
+                                                        + year
+                                                        + "-"
+                                                        + LocalDateTime.now().format(INVOICE_TS_FMT)
+                                                        + "-"
+                                                        + (int) (Math.random() * 1000);
+                        if (!billRepository.existsByInvoiceNumber(candidate)) {
+                                return candidate;
+                        }
+                }
+                throw new BadRequestException("Unable to generate unique invoice number");
     }
 
     private boolean isStandaloneBookingBill(Bill bill) {
@@ -632,6 +704,103 @@ public class BillingService {
                                                                                             || li.getItemType() == ItemType.PROCEDURE);
 
             return hasDoctorFee && hasChannelingFee && !hasNonBookingCharges;
+    }
+
+    private Bill bindConsultationToMatchingBookingBill(Consultation consultation) {
+            if (consultation == null || consultation.getPatient() == null) {
+                    return null;
+            }
+
+            String confirmationCode =
+                            consultation.getAppointment() != null
+                                            ? consultation.getAppointment().getConfirmationCode()
+                                            : null;
+            if (confirmationCode == null || confirmationCode.isBlank()) {
+                    return null;
+            }
+
+            String normalizedCode = confirmationCode.trim().toLowerCase();
+
+            Bill bookingBill =
+                            billRepository.findByPatientId(consultation.getPatient().getId()).stream()
+                                            .filter(this::isStandaloneBookingBill)
+                                            .filter(
+                                                            bill ->
+                                                                            bill.getLineItems() != null
+                                                                                            && bill.getLineItems().stream()
+                                                                                                            .map(BillLineItem::getDescription)
+                                                                                                            .filter(desc -> desc != null)
+                                                                                                            .map(String::toLowerCase)
+                                                                                                            .anyMatch(desc -> desc.contains(normalizedCode)))
+                                            .max((a, b) -> a.getCreatedAt().compareTo(b.getCreatedAt()))
+                                            .orElse(null);
+
+            if (bookingBill == null) {
+                    return null;
+            }
+
+            bookingBill.setConsultation(consultation);
+            ensureBaseFeeLineItems(bookingBill, consultation);
+            recalculateBillTotalsAndStatus(bookingBill);
+            return billRepository.save(bookingBill);
+    }
+
+    private void reconcileDispensedMedicineCharges(Bill bill) {
+        if (bill == null || bill.getConsultation() == null || bill.getConsultation().getId() == null) {
+            return;
+        }
+
+        Prescription dispensedPrescription =
+                prescriptionRepository
+                        .findByConsultationId(bill.getConsultation().getId())
+                        .filter(p -> p.getStatus() == PrescriptionStatus.DISPENSED)
+                        .orElse(null);
+
+        if (dispensedPrescription == null) {
+            return;
+        }
+
+        int currentMedicineCount =
+                (int)
+                        bill.getLineItems().stream()
+                                .filter(li -> li.getItemType() == ItemType.MEDICINE)
+                                .count();
+        int expectedMedicineCount =
+                dispensedPrescription.getItems() != null ? dispensedPrescription.getItems().size() : 0;
+
+        BigDecimal currentMedicineTotal =
+                bill.getLineItems().stream()
+                        .filter(li -> li.getItemType() == ItemType.MEDICINE)
+                        .map(BillLineItem::getTotalPrice)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal expectedMedicineTotal =
+                (dispensedPrescription.getItems() == null ? List.<PrescriptionItem>of() : dispensedPrescription.getItems())
+                        .stream()
+                        .map(
+                                item -> {
+                                    BigDecimal unitPrice = BigDecimal.ZERO;
+                                    if (item.getInventoryItem() != null
+                                            && item.getInventoryItem().getSellingPrice() != null) {
+                                        unitPrice = item.getInventoryItem().getSellingPrice();
+                                    }
+                                                                        int qty = item.getQuantity() == null ? 0 : item.getQuantity().intValue();
+                                                                        return unitPrice.multiply(BigDecimal.valueOf(qty));
+                                })
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        boolean needsSync =
+                currentMedicineCount != expectedMedicineCount
+                        || currentMedicineTotal.compareTo(expectedMedicineTotal) != 0;
+
+        if (!needsSync) {
+            return;
+        }
+
+        bill.getLineItems().removeIf(li -> li.getItemType() == ItemType.MEDICINE);
+        addMedicineLineItems(bill, dispensedPrescription);
+        recalculateBillTotalsAndStatus(bill);
+        billRepository.save(bill);
     }
 
         private void addBaseFeeLineItems(Bill bill, Consultation consultation) {
@@ -796,6 +965,57 @@ public class BillingService {
                         bill.setStatus(BillStatus.ISSUED);
                 }
         }
+
+    private boolean ensureBookingRefundLineItems(Bill bill, String appointmentConfirmationCode) {
+            String code = appointmentConfirmationCode == null ? "" : appointmentConfirmationCode.trim();
+            String codeSuffix = code.isBlank() ? "" : " (Appt: " + code + ")";
+
+            boolean hasDoctorRefund =
+                            bill.getLineItems().stream()
+                                            .anyMatch(
+                                                            li ->
+                                                                            li.getItemType() == ItemType.CONSULTATION
+                                                                                            && li.getUnitPrice() != null
+                                                                                            && li.getUnitPrice().compareTo(DOCTOR_FEE.negate()) == 0
+                                                                                            && li.getDescription() != null
+                                                                                            && li.getDescription().toLowerCase().contains("doctor fee refund"));
+
+            boolean hasChannelRefund =
+                            bill.getLineItems().stream()
+                                            .anyMatch(
+                                                            li ->
+                                                                            li.getItemType() == ItemType.OTHER
+                                                                                            && li.getUnitPrice() != null
+                                                                                            && li.getUnitPrice().compareTo(CHANNELING_FEE.negate()) == 0
+                                                                                            && li.getDescription() != null
+                                                                                            && li.getDescription().toLowerCase().contains("channeling fee refund"));
+
+            if (!hasDoctorRefund) {
+                    bill.getLineItems().add(
+                                    BillLineItem.builder()
+                                                    .bill(bill)
+                                                    .description("Doctor Fee Refund" + codeSuffix)
+                                                    .itemType(ItemType.CONSULTATION)
+                                                    .quantity(1)
+                                                    .unitPrice(DOCTOR_FEE.negate())
+                                                    .totalPrice(DOCTOR_FEE.negate())
+                                                    .build());
+            }
+
+            if (!hasChannelRefund) {
+                    bill.getLineItems().add(
+                                    BillLineItem.builder()
+                                                    .bill(bill)
+                                                    .description("Channeling Fee Refund" + codeSuffix)
+                                                    .itemType(ItemType.OTHER)
+                                                    .quantity(1)
+                                                    .unitPrice(CHANNELING_FEE.negate())
+                                                    .totalPrice(CHANNELING_FEE.negate())
+                                                    .build());
+            }
+
+            return !hasDoctorRefund || !hasChannelRefund;
+    }
 
     private BillResponse mapToResponse(Bill bill) {
         List<BillResponse.LineItemInfo> lineItems =

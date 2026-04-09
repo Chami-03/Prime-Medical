@@ -1,23 +1,35 @@
 package com.primemedical.controller;
 
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import com.primemedical.dto.request.BloodCheckupUpdateRequest;
 import com.primemedical.dto.request.ConsultationNotesRequest;
 import com.primemedical.dto.request.VitalSignsRequest;
 import com.primemedical.dto.response.ApiResponse;
 import com.primemedical.dto.response.ConsultationResponse;
 import com.primemedical.repository.UserRepository;
+import com.primemedical.service.ConsultationEventStreamService;
 import com.primemedical.service.ConsultationService;
+
 import jakarta.validation.Valid;
-import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/v1/consultations")
@@ -25,6 +37,7 @@ import org.springframework.web.bind.annotation.*;
 public class ConsultationController {
 
     private final ConsultationService consultationService;
+    private final ConsultationEventStreamService consultationEventStreamService;
     private final UserRepository userRepository;
 
     @PostMapping
@@ -101,6 +114,14 @@ public class ConsultationController {
             @PathVariable Long id) {
         ConsultationResponse response = consultationService.getConsultationById(id);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN','DOCTOR','NURSE')")
+    public SseEmitter streamConsultationEvents(@PathVariable Long id) {
+        // Ensure consultation exists before opening stream.
+        consultationService.getConsultationById(id);
+        return consultationEventStreamService.subscribe(id);
     }
 
     @GetMapping("/patient/{patientId}")

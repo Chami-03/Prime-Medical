@@ -33,6 +33,12 @@ public class EmailService {
             Integer quantity,
             String instructions) {}
 
+        public record BillLineItemEmailRow(
+            String description,
+            Integer quantity,
+            BigDecimal unitPrice,
+            BigDecimal totalPrice) {}
+
     private final JavaMailSender mailSender;
 
     @Value("${app.notification.email.from:${spring.mail.username}}")
@@ -163,6 +169,55 @@ public class EmailService {
                         </html>
                         """,
                         patientName, confirmationCode, doctorName, newDateTime.format(DATE_FMT));
+
+        sendHtmlEmail(toEmail, subject, body);
+    }
+
+        /** Send doctor-delay notification email with optional reason. */
+    public void sendDoctorDelayNotification(
+            String toEmail,
+            String patientName,
+            String doctorName,
+            LocalDateTime previousDateTime,
+            LocalDateTime delayedDateTime,
+            String confirmationCode,
+            String delayReason) {
+        String safeName =
+            (patientName == null || patientName.trim().isEmpty()) ? "Patient" : patientName.trim();
+        String safeDoctor =
+            (doctorName == null || doctorName.trim().isEmpty()) ? "your doctor" : doctorName.trim();
+        String subject = "Doctor Delay: Appointment Time Updated — " + confirmationCode;
+        String reasonSection =
+            (delayReason != null && !delayReason.trim().isEmpty())
+                ? "<p><strong>Reason:</strong> " + escapeHtml(delayReason.trim()) + "</p>"
+                : "";
+
+        String body =
+                String.format(
+                        """
+                        <html>
+                        <body style="font-family: Arial, sans-serif;">
+                            <h2 style="color: #d97706;">Doctor Delay Notice</h2>
+                            <p>Dear <strong>%s</strong>,</p>
+                            <p>Your appointment has been delayed because <strong>%s</strong> is running late.</p>
+                            <table style="border-collapse: collapse; margin: 16px 0;">
+                                <tr><td style="padding: 8px; font-weight: bold;">Confirmation Code:</td><td style="padding: 8px;">%s</td></tr>
+                                <tr><td style="padding: 8px; font-weight: bold;">Previous Time:</td><td style="padding: 8px;">%s</td></tr>
+                                <tr><td style="padding: 8px; font-weight: bold;">New Time:</td><td style="padding: 8px;">%s</td></tr>
+                            </table>
+                            %s
+                            <p>Please arrive close to the updated time above.</p>
+                            <p>Thank you for your patience.</p>
+                            <p>Best regards,<br/><strong>Prime Medical Team</strong></p>
+                        </body>
+                        </html>
+                        """,
+                        safeName,
+                        safeDoctor,
+                        confirmationCode,
+                        previousDateTime.format(DATE_FMT),
+                        delayedDateTime.format(DATE_FMT),
+                        reasonSection);
 
         sendHtmlEmail(toEmail, subject, body);
     }
@@ -395,6 +450,98 @@ public class EmailService {
                         totalPaid,
                         balanceDue,
                         billStatus);
+
+        sendHtmlEmail(toEmail.trim(), subject, body);
+    }
+
+    /** Send detailed bill receipt email when a bill is fully paid. */
+    public void sendBillPaidReceiptEmail(
+            String toEmail,
+            String patientName,
+            String invoiceNumber,
+            BigDecimal subtotal,
+            BigDecimal taxAmount,
+            BigDecimal netAmount,
+            BigDecimal totalPaid,
+            List<BillLineItemEmailRow> lineItems) {
+        if (toEmail == null || toEmail.trim().isEmpty()) {
+            return;
+        }
+
+        String safeName =
+                (patientName == null || patientName.trim().isEmpty()) ? "Patient" : patientName.trim();
+        String subject = "Payment Completed - Invoice " + invoiceNumber;
+
+        String lineRows =
+                (lineItems == null ? List.<BillLineItemEmailRow>of() : lineItems).stream()
+                        .map(
+                                item ->
+                                        String.format(
+                                                """
+                                                <tr>
+                                                    <td style=\"padding:8px;border:1px solid #d1d5db;\">%s</td>
+                                                    <td style=\"padding:8px;border:1px solid #d1d5db;text-align:center;\">%s</td>
+                                                    <td style=\"padding:8px;border:1px solid #d1d5db;text-align:right;\">LKR %s</td>
+                                                    <td style=\"padding:8px;border:1px solid #d1d5db;text-align:right;\">LKR %s</td>
+                                                </tr>
+                                                """,
+                                                escapeHtml(item.description()),
+                                                item.quantity() == null ? "-" : item.quantity(),
+                                                item.unitPrice() == null ? "0.00" : item.unitPrice(),
+                                                item.totalPrice() == null ? "0.00" : item.totalPrice()))
+                        .collect(Collectors.joining());
+
+        if (lineRows.isBlank()) {
+            lineRows =
+                    """
+                    <tr>
+                        <td colspan=\"4\" style=\"padding:8px;border:1px solid #d1d5db;text-align:center;color:#6b7280;\">No line items available.</td>
+                    </tr>
+                    """;
+        }
+
+        String body =
+                String.format(
+                        """
+                        <html>
+                        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #111827;">
+                            <h2 style="color: #16a34a;">Payment Completed</h2>
+                            <p>Dear <strong>%s</strong>,</p>
+                            <p>Your bill has been fully paid. Here is your invoice summary.</p>
+                            <p><strong>Invoice Number:</strong> %s</p>
+
+                            <table style="border-collapse:collapse;width:100%%;margin:10px 0;font-size:13px;">
+                                <thead>
+                                    <tr style="background:#f3f4f6;">
+                                        <th style="padding:8px;border:1px solid #d1d5db;text-align:left;">Description</th>
+                                        <th style="padding:8px;border:1px solid #d1d5db;text-align:center;">Qty</th>
+                                        <th style="padding:8px;border:1px solid #d1d5db;text-align:right;">Unit Price</th>
+                                        <th style="padding:8px;border:1px solid #d1d5db;text-align:right;">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    %s
+                                </tbody>
+                            </table>
+
+                            <table style="border-collapse: collapse; margin: 16px 0;">
+                                <tr><td style="padding: 6px 10px; font-weight: bold;">Subtotal:</td><td style="padding: 6px 10px; text-align:right;">LKR %s</td></tr>
+                                <tr><td style="padding: 6px 10px; font-weight: bold;">Tax:</td><td style="padding: 6px 10px; text-align:right;">LKR %s</td></tr>
+                                <tr><td style="padding: 6px 10px; font-weight: bold;">Net Amount:</td><td style="padding: 6px 10px; text-align:right;">LKR %s</td></tr>
+                                <tr><td style="padding: 6px 10px; font-weight: bold;">Total Paid:</td><td style="padding: 6px 10px; text-align:right;">LKR %s</td></tr>
+                            </table>
+
+                            <p>Thank you for choosing Prime Medical.</p>
+                        </body>
+                        </html>
+                        """,
+                        safeName,
+                        invoiceNumber,
+                        lineRows,
+                        subtotal == null ? BigDecimal.ZERO : subtotal,
+                        taxAmount == null ? BigDecimal.ZERO : taxAmount,
+                        netAmount == null ? BigDecimal.ZERO : netAmount,
+                        totalPaid == null ? BigDecimal.ZERO : totalPaid);
 
         sendHtmlEmail(toEmail.trim(), subject, body);
     }
